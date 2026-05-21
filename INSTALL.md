@@ -81,18 +81,29 @@ sudo journalctl -u max-hr-admin.service -f
 sudo journalctl -u max-hr-bot.service -f
 ```
 
-## 8. Настроить firewall
+## 8. Включить обслуживание из web-интерфейса
+
+Для проверки обновлений, обновления из GitHub и перезапуска служб из раздела «О программе» выполните один раз:
+
+```bash
+cd /opt/max-hr-recruitment-bot
+sudo bash scripts/setup_maintenance_sudoers.sh
+```
+
+Скрипт создаёт ограниченный sudoers-файл только для управления службами `max-hr-admin.service` и `max-hr-bot.service`.
+
+## 9. Настроить firewall
 
 Открывайте порт web-админки только во внутренней сети, через VPN или SSH-туннель. Не публикуйте web-админку в интернет без HTTPS и дополнительной защиты.
 
-## 9. Сделать первый backup
+## 10. Сделать первый backup
 
 ```bash
 cd /opt/max-hr-recruitment-bot
 sudo bash scripts/backup.sh
 ```
 
-## 10. Удалить проект
+## 11. Удалить проект
 
 ```bash
 cd /opt/max-hr-recruitment-bot

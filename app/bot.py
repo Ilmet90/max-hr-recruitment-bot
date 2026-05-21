@@ -8,7 +8,7 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
-from app import db
+from app import db, maintenance
 from app.admin_bot import notify_admins, notify_approvers
 from app.max_api import MaxAPI, build_keyboard
 
@@ -80,11 +80,12 @@ COMMENT_KEYBOARD = build_keyboard([["Пропустить"], ["Отмена"]])
 VACANCY_DETAIL_KEYBOARD = build_keyboard([["Откликнуться на эту вакансию"], ["Назад к вакансиям"], ["Главное меню"]])
 STAFF_BACK_KEYBOARD = build_keyboard([["Служебное меню"], ["Меню кандидата"]])
 STAFF_MENU_KEYBOARD = build_keyboard(
-    [["Новые отклики"], ["Мои отклики в работе"], ["Все отклики"], ["Вакансии", "Условия службы"], ["Статистика"], ["Меню кандидата"]]
+    [["Новые отклики"], ["Мои отклики в работе"], ["Все отклики"], ["Вакансии", "Условия службы"], ["О программе"], ["Статистика"], ["Меню кандидата"]]
 )
 HEAD_STAFF_MENU_KEYBOARD = build_keyboard(
-    [["Новые отклики"], ["Мои отклики в работе"], ["Все отклики"], ["Назначить отклик"], ["Заявки на доступ"], ["Сотрудники отдела кадров"], ["Вакансии", "Условия службы"], ["Статистика"], ["Меню кандидата"]]
+    [["Новые отклики"], ["Мои отклики в работе"], ["Все отклики"], ["Назначить отклик"], ["Заявки на доступ"], ["Сотрудники отдела кадров"], ["Вакансии", "Условия службы"], ["О программе"], ["Статистика"], ["Меню кандидата"]]
 )
+STAFF_ABOUT_KEYBOARD = build_keyboard([["Проверить обновления"], ["Обновить из GitHub"], ["Перезапустить MAX-бота"], ["Перезапустить web-админку"], ["Служебное меню"]])
 
 
 def cancel_keyboard() -> dict[str, Any]:
@@ -933,7 +934,60 @@ def format_application_short(app: dict[str, Any]) -> str:
     return f"#{app['id']} {app.get('vacancy_title') or ''}\n{app.get('full_name') or ''}, {app.get('phone') or ''}\nСтатус: {db.application_status_label(app.get('status'))}\nОтветственный: {app.get('assigned_to_name') or 'нет'}"
 
 
-def handle_staff_text(api: MaxAPI, chat_id: str, user_id: str, command: str) -> bool:
+def format_maintenance_info(info: dict[str, Any], include_remote: bool = True) -> str:
+    lines = [
+        "О программе",
+        "",
+        f"Версия: {info.get('version')}",
+        f"Установленный commit: {info.get('installed_commit')}",
+    ]
+    if include_remote:
+        lines.extend(
+            [
+                f"GitHub: {info.get('repo_url')}",
+                f"Ветка: {info.get('branch')}",
+                f"Последний commit: {info.get('latest_commit') or 'не получен'}",
+                f"Статус: {info.get('message')}",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def show_staff_about(api: MaxAPI, chat_id: str, user_id: str, admin: dict[str, Any]) -> None:
+    can_maintain = has_head_rights(admin)
+    info = maintenance.check_updates() if can_maintain else maintenance.get_local_info()
+    keyboard = STAFF_ABOUT_KEYBOARD if can_maintain else STAFF_BACK_KEYBOARD
+    send(api, chat_id, format_maintenance_info(info, include_remote=can_maintain), user_id=user_id, keyboard=keyboard)
+
+
+def handle_staff_maintenance_state(
+    api: MaxAPI,
+    chat_id: str,
+    user_id: str,
+    state_id: str,
+    command: str,
+    state: dict[str, Any],
+    admin: dict[str, Any],
+) -> bool:
+    if state.get("scenario") != "maintenance_confirm":
+        return False
+    if command in {"отмена", "/cancel", "нет"}:
+        user_states.pop(state_id, None)
+        show_staff_menu(api, chat_id, user_id, admin)
+        return True
+    if command != "да, обновить":
+        send(api, chat_id, "Подтвердите действие кнопкой или нажмите «Отмена».", user_id=user_id, keyboard=build_keyboard([["Да, обновить"], ["Отмена"]]))
+        return True
+    user_states.pop(state_id, None)
+    ok, output = maintenance.run_update_script()
+    text = "Обновление выполнено. Службы перезапущены." if ok else "Не удалось выполнить обновление."
+    if output:
+        text += f"\n\n{output}"
+    send(api, chat_id, text[-3500:], user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+    return True
+
+
+def handle_staff_text(api: MaxAPI, chat_id: str, user_id: str, state_id: str, command: str) -> bool:
     admin = db.get_admin_by_user_id(user_id)
     if command in {"/staff", "служебное меню"}:
         checked = require_staff_message(api, chat_id, user_id)
@@ -942,6 +996,9 @@ def handle_staff_text(api: MaxAPI, chat_id: str, user_id: str, command: str) -> 
         return True
     if not has_staff_access(admin):
         return False
+    state = user_states.get(state_id)
+    if state and handle_staff_maintenance_state(api, chat_id, user_id, state_id, command, state, admin):
+        return True
     if command in {"новые отклики", "мои отклики в работе", "все отклики"}:
         apps = db.list_applications()
         if command == "новые отклики":
@@ -988,6 +1045,38 @@ def handle_staff_text(api: MaxAPI, chat_id: str, user_id: str, command: str) -> 
         apps = db.list_applications()
         send(api, chat_id, f"Отклики всего: {len(apps)}\nНовые: {len([a for a in apps if a.get('status') == 'new'])}", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
         return True
+    if command == "о программе":
+        show_staff_about(api, chat_id, user_id, admin)
+        return True
+    if command == "проверить обновления":
+        if not has_head_rights(admin):
+            send(api, chat_id, "Доступ запрещён.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+            return True
+        show_staff_about(api, chat_id, user_id, admin)
+        return True
+    if command == "обновить из github":
+        if not has_head_rights(admin):
+            send(api, chat_id, "Доступ запрещён.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+            return True
+        user_states[state_id] = {"scenario": "maintenance_confirm", "action": "update"}
+        send(api, chat_id, "Подтвердите обновление из GitHub.", user_id=user_id, keyboard=build_keyboard([["Да, обновить"], ["Отмена"]]))
+        return True
+    if command == "перезапустить max-бота":
+        if not has_head_rights(admin):
+            send(api, chat_id, "Доступ запрещён.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+            return True
+        send(api, chat_id, "MAX-бот будет перезапущен.", user_id=user_id)
+        ok, message = maintenance.restart_bot_service(deferred=True)
+        if not ok:
+            send(api, chat_id, message, user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+        return True
+    if command == "перезапустить web-админку":
+        if not has_head_rights(admin):
+            send(api, chat_id, "Доступ запрещён.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+            return True
+        ok, message = maintenance.restart_admin_service()
+        send(api, chat_id, message, user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+        return True
     if command in {"главное меню кандидата", "меню кандидата"}:
         show_main_menu(api, chat_id, user_id=user_id)
         return True
@@ -1032,8 +1121,13 @@ def handle_message(api: MaxAPI, message: dict[str, Any], update: dict[str, Any] 
 
     command = normalize(text)
     if command in {"/cancel", "отмена"}:
+        state = user_states.get(state_id)
+        admin = db.get_admin_by_user_id(user_id)
         user_states.pop(state_id, None)
-        show_main_menu(api, chat_id, user_id=user_id)
+        if admin and has_staff_access(admin) and str((state or {}).get("scenario") or "").startswith(("staff_", "maintenance_")):
+            show_staff_menu(api, chat_id, user_id, admin)
+        else:
+            show_main_menu(api, chat_id, user_id=user_id)
         return
     if command in {"/start", "/menu", "меню", "главное меню", "начать", "start", "старт", "bot_start"}:
         user_states.pop(state_id, None)
@@ -1051,7 +1145,7 @@ def handle_message(api: MaxAPI, message: dict[str, Any], update: dict[str, Any] 
     if command.startswith("принять в работу #"):
         handle_take_application_command(api, chat_id, user_id, text)
         return
-    if handle_staff_text(api, chat_id, user_id, command):
+    if handle_staff_text(api, chat_id, user_id, state_id, command):
         return
 
     state = user_states.get(state_id)

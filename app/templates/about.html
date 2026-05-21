@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>О программе</h1>
+{% for message in messages or [] %}<p class="notice">{{ message }}</p>{% endfor %}
+{% for error in errors or [] %}<p class="alert">{{ error }}</p>{% endfor %}
+
+<section class="panel">
+  <h2>MAX HR Recruitment Bot</h2>
+  <p><strong>Организация:</strong> {{ org_settings.organization_full_name }}</p>
+  <p><strong>Версия:</strong> {{ info.version }}</p>
+  <p><strong>Установленный commit:</strong> {{ info.installed_commit }}</p>
+  {% if can_maintain %}
+    <p><strong>GitHub-репозиторий:</strong> {{ info.repo_url }}</p>
+    <p><strong>Ветка:</strong> {{ info.branch }}</p>
+    <p><strong>Последний commit в GitHub:</strong> {{ info.latest_commit or "не получен" }}</p>
+    <p><strong>Статус:</strong> {{ info.message }}</p>
+    <p><strong>Последнее обновление:</strong> {{ info.update_last_at or "нет данных" }}</p>
+  {% else %}
+    <p class="small">Для вашей роли доступна только информация о версии.</p>
+  {% endif %}
+</section>
+
+{% if can_maintain %}
+  <section class="panel">
+    <h2>Обслуживание</h2>
+    <div class="actions">
+      <form method="post" action="/admin/about/check-updates">
+        <button>Проверить обновления</button>
+      </form>
+      <form method="post" action="/admin/about/update" onsubmit="return confirm('Будет выполнено обновление кода из GitHub. База данных, .env, логи и загруженные фотографии будут сохранены. Продолжить?')">
+        <button>Обновить из GitHub</button>
+      </form>
+      <form method="post" action="/admin/about/restart-admin" onsubmit="return confirm('Web-админка будет перезапущена. Продолжить?')">
+        <button>Перезапустить web-админку</button>
+      </form>
+      <form method="post" action="/admin/about/restart-bot" onsubmit="return confirm('MAX-бот будет перезапущен. Продолжить?')">
+        <button>Перезапустить MAX-бота</button>
+      </form>
+    </div>
+  </section>
+{% endif %}
+
+{% if command_output %}
+  <section class="panel">
+    <h2>Вывод команды</h2>
+    <pre class="log-output">{{ command_output }}</pre>
+  </section>
+{% endif %}
+{% endblock %}

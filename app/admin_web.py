@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app import db
+from app import maintenance
 from app.max_api import MaxAPI
 
 
@@ -30,7 +31,7 @@ STATIC_DIR = APP_DIR / "static"
 UPLOAD_DIR = STATIC_DIR / "uploads" / "service"
 
 ALLOWED_PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
-SESSION_COOKIE = "max_ik2_admin"
+SESSION_COOKIE = "max_hr_admin"
 BOOT_SESSION_ID = secrets.token_urlsafe(16)
 SESSION_TTL_SECONDS = 8 * 60 * 60
 
@@ -468,6 +469,93 @@ def dashboard(request: Request) -> HTMLResponse:
             "questions": len(db.list_questions()),
             "appeals": len(db.list_appeals()),
             "admins": len(db.list_admins(active_only=True)),
+        },
+    )
+
+
+@app.get("/admin/about", response_class=HTMLResponse)
+def about_page(request: Request) -> HTMLResponse:
+    require_admin(request)
+    can_maintain = has_head_rights(request)
+    return render(
+        request,
+        "about.html",
+        {
+            "info": maintenance.check_updates() if can_maintain else maintenance.get_local_info(),
+            "can_maintain": can_maintain,
+        },
+    )
+
+
+@app.post("/admin/about/check-updates", response_class=HTMLResponse)
+def about_check_updates(request: Request) -> HTMLResponse:
+    require_admin(request)
+    if not has_head_rights(request):
+        raise HTTPException(status_code=403)
+    return render(
+        request,
+        "about.html",
+        {
+            "info": maintenance.check_updates(),
+            "can_maintain": True,
+            "messages": ["Проверка обновлений выполнена."],
+        },
+    )
+
+
+@app.post("/admin/about/update", response_class=HTMLResponse)
+def about_update(request: Request) -> HTMLResponse:
+    require_admin(request)
+    if not has_head_rights(request):
+        raise HTTPException(status_code=403)
+    ok, output = maintenance.run_update_script()
+    messages = ["Обновление выполнено. Службы перезапущены."] if ok else []
+    errors = [] if ok else ["Не удалось выполнить обновление."]
+    return render(
+        request,
+        "about.html",
+        {
+            "info": maintenance.check_updates(),
+            "can_maintain": True,
+            "messages": messages,
+            "errors": errors,
+            "command_output": output,
+        },
+    )
+
+
+@app.post("/admin/about/restart-admin", response_class=HTMLResponse)
+def about_restart_admin(request: Request) -> HTMLResponse:
+    require_admin(request)
+    if not has_head_rights(request):
+        raise HTTPException(status_code=403)
+    ok, message = maintenance.restart_admin_service()
+    return render(
+        request,
+        "about.html",
+        {
+            "info": maintenance.check_updates(),
+            "can_maintain": True,
+            "messages": [message] if ok else [],
+            "errors": [] if ok else [message],
+        },
+    )
+
+
+@app.post("/admin/about/restart-bot", response_class=HTMLResponse)
+def about_restart_bot(request: Request) -> HTMLResponse:
+    require_admin(request)
+    if not has_head_rights(request):
+        raise HTTPException(status_code=403)
+    ok, message = maintenance.restart_bot_service()
+    return render(
+        request,
+        "about.html",
+        {
+            "info": maintenance.check_updates(),
+            "can_maintain": True,
+            "messages": [message] if ok else [],
+            "errors": [] if ok else [message],
         },
     )
 

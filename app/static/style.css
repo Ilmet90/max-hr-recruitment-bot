@@ -115,6 +115,16 @@ textarea { min-height: 120px; resize: vertical; }
 .small { font-size: 13px; color: var(--theme-muted); min-width: 260px; }
 .notice { color: #d8f0ff; background: rgba(23,69,111,.5); border: 1px solid rgba(159,179,200,.28); border-radius: 8px; padding: 10px 12px; }
 .badge { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; color: var(--theme-accent-light); font-size: 13px; }
+.log-output {
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre-wrap;
+  background: #061629;
+  border: 1px solid rgba(159,179,200,.22);
+  border-radius: 8px;
+  padding: 12px;
+  color: var(--theme-light);
+}
 .album-form, .photo-upload-form {
   max-width: none;
   grid-template-columns: minmax(220px, 1.2fr) minmax(220px, 1.5fr) 120px 120px auto;

@@ -65,7 +65,7 @@ APP_PORT="$(read_with_default "APP_PORT" "8000")"
 
 echo "== Установка системных пакетов =="
 apt-get update
-apt-get install -y python3 python3-venv python3-pip git curl sqlite3 ca-certificates openssl
+apt-get install -y python3 python3-venv python3-pip git curl rsync sqlite3 ca-certificates openssl
 
 echo "== Подготовка пользователя и каталога =="
 if ! id "$SERVICE_USER" >/dev/null 2>&1; then
@@ -120,7 +120,7 @@ runuser -u "$SERVICE_USER" -- env \
   BOT_DISPLAY_NAME="$BOT_DISPLAY_NAME" \
   "$INSTALL_DIR/.venv/bin/python" - <<'PY'
 import os
-from app.db import init_db, update_org_settings
+from app.db import init_db, set_setting, update_org_settings
 
 init_db()
 update_org_settings(
@@ -137,6 +137,9 @@ update_org_settings(
     None,
     "Установщик",
 )
+set_setting("admin_service_name", "max-hr-admin.service")
+set_setting("bot_service_name", "max-hr-bot.service")
+set_setting("install_path", "/opt/max-hr-recruitment-bot")
 print("db ok")
 PY
 
@@ -206,6 +209,9 @@ echo "sudo systemctl status $ADMIN_SERVICE"
 echo "sudo systemctl status $BOT_SERVICE"
 echo "sudo systemctl restart $ADMIN_SERVICE"
 echo "sudo systemctl restart $BOT_SERVICE"
+echo
+echo "Для управления обновлениями и перезапуском служб из web-интерфейса выполните один раз:"
+echo "sudo bash $INSTALL_DIR/scripts/setup_maintenance_sudoers.sh"
 echo
 echo "Проект: $INSTALL_DIR"
 echo ".env: $INSTALL_DIR/.env"

@@ -100,6 +100,17 @@ ORG_SETTING_GROUPS = {
     "theme": ["theme_primary_color", "theme_secondary_color", "theme_accent_color"],
 }
 
+DEFAULT_UPDATE_SETTINGS = {
+    "github_repo_url": "https://github.com/Ilmet90/max-hr-recruitment-bot.git",
+    "github_branch": "main",
+    "installed_commit": "local",
+    "auto_update_enabled": "1",
+    "admin_service_name": "max-hr-admin.service",
+    "bot_service_name": "max-hr-bot.service",
+    "install_path": "/opt/max-hr-recruitment-bot",
+    "update_last_at": "",
+}
+
 SERVICE_INFO_LABELS = {
     "conditions": "Условия службы",
     "order": "Порядок поступления на службу",
@@ -292,6 +303,7 @@ def init_db() -> None:
         ensure_applications_schema(conn)
         ensure_service_photos_schema(conn)
         seed_default_org_settings(conn)
+        seed_default_update_settings(conn)
         seed_db(conn)
 
 
@@ -397,6 +409,11 @@ def ensure_service_photos_schema(conn: sqlite3.Connection) -> None:
 
 def seed_default_org_settings(conn: sqlite3.Connection) -> None:
     for key, value in DEFAULT_ORG_SETTINGS.items():
+        conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, value))
+
+
+def seed_default_update_settings(conn: sqlite3.Connection) -> None:
+    for key, value in DEFAULT_UPDATE_SETTINGS.items():
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, value))
 
 
@@ -506,6 +523,45 @@ def update_org_settings(data: dict[str, Any], actor_id: int | None = None, actor
         value = str(data.get(key, DEFAULT_ORG_SETTINGS[key]) or "").strip()
         set_setting(key, value)
     audit_log(actor_id, actor_name, "organization_settings_updated", "settings", None, "Настройки организации сохранены.")
+
+
+def get_update_settings() -> dict[str, str]:
+    settings = DEFAULT_UPDATE_SETTINGS.copy()
+    placeholders = ", ".join("?" for _ in DEFAULT_UPDATE_SETTINGS)
+    rows = fetch_all(f"SELECT key, value FROM settings WHERE key IN ({placeholders})", tuple(DEFAULT_UPDATE_SETTINGS.keys()))
+    for row in rows:
+        if row.get("value") is not None:
+            settings[str(row["key"])] = str(row["value"])
+    return settings
+
+
+def set_installed_commit(commit: str) -> None:
+    set_setting("installed_commit", (commit or "local").strip() or "local")
+    set_setting("update_last_at", now_iso())
+
+
+def get_installed_commit() -> str:
+    return get_setting("installed_commit", DEFAULT_UPDATE_SETTINGS["installed_commit"]).strip() or "local"
+
+
+def get_github_repo_url() -> str:
+    return get_setting("github_repo_url", DEFAULT_UPDATE_SETTINGS["github_repo_url"]).strip()
+
+
+def get_github_branch() -> str:
+    return get_setting("github_branch", DEFAULT_UPDATE_SETTINGS["github_branch"]).strip() or DEFAULT_UPDATE_SETTINGS["github_branch"]
+
+
+def get_admin_service_name() -> str:
+    return get_setting("admin_service_name", DEFAULT_UPDATE_SETTINGS["admin_service_name"]).strip() or DEFAULT_UPDATE_SETTINGS["admin_service_name"]
+
+
+def get_bot_service_name() -> str:
+    return get_setting("bot_service_name", DEFAULT_UPDATE_SETTINGS["bot_service_name"]).strip() or DEFAULT_UPDATE_SETTINGS["bot_service_name"]
+
+
+def get_install_path() -> str:
+    return get_setting("install_path", DEFAULT_UPDATE_SETTINGS["install_path"]).strip() or DEFAULT_UPDATE_SETTINGS["install_path"]
 
 
 def get_admin_secret() -> str:
