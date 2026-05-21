@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ "Редактировать контакт" if item.id else "Добавить контакт" }}</h1>
+<form class="form" method="post" action="{{ action }}">
+  <label>Название<input name="title" value="{{ item.title or '' }}" required></label>
+  <label>Значение<input name="value" value="{{ item.value or '' }}" required></label>
+  <label>Примечание<textarea name="note">{{ item.note or '' }}</textarea></label>
+  <label>Порядок сортировки<input name="sort_order" type="number" value="{{ item.sort_order or 100 }}"></label>
+  <label class="check"><input name="is_active" type="checkbox" value="1" {% if item.is_active is not defined or item.is_active %}checked{% endif %}> Активен</label>
+  <button type="submit">Сохранить</button>
+</form>
+{% endblock %}

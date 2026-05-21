@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Мой профиль</h1>
+{% for message in messages or [] %}<p class="notice">{{ message }}</p>{% endfor %}
+{% for error in errors or [] %}<p class="alert">{{ error }}</p>{% endfor %}
+
+<section class="panel">
+  <p><strong>Имя:</strong> {{ current_admin.name }}</p>
+  <p><strong>Логин:</strong> {{ current_admin.web_login }}</p>
+  <p><strong>Роль:</strong> {{ role_label(current_admin.role) }}</p>
+  <p><strong>Статус:</strong> Активен</p>
+  {% if current_admin.delegated_until %}
+    <p><strong>Делегирование:</strong> временно исполняет полномочия до {{ current_admin.delegated_until }}</p>
+  {% endif %}
+  {% if current_admin.role == "superadmin" %}
+    <p class="small">Логин главной учётной записи задаётся в файле .env. Пароль можно изменить на этой странице.</p>
+  {% endif %}
+</section>
+
+<form class="form" method="post" action="/admin/profile">
+  {% if current_admin.role != "superadmin" %}
+  <h2>Смена логина</h2>
+  <label>Новый логин<input name="web_login" value="{{ current_admin.web_login }}" required></label>
+  {% endif %}
+
+  <h2>Смена пароля</h2>
+  <label>Текущий пароль<input type="password" name="current_password"></label>
+  <label>Новый пароль<input type="password" name="new_password"></label>
+  <label>Повтор нового пароля<input type="password" name="confirm_password"></label>
+  <button>Сохранить</button>
+</form>
+{% endblock %}

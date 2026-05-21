@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <h1>Вакансии</h1>
+  <a class="button" href="/admin/vacancies/new">Добавить</a>
+</div>
+<table>
+  <thead><tr><th>ID</th><th>Порядок</th><th>Название</th><th>Зарплата</th><th>Статус</th><th>Действия</th></tr></thead>
+  <tbody>
+  {% for item in items %}
+    <tr>
+      <td>{{ item.id }}</td>
+      <td>{{ item.sort_order }}</td>
+      <td>{{ item.title }}</td>
+      <td>{{ item.salary }}</td>
+      <td>{{ "активна" if item.is_active else "выключена" }}</td>
+      <td class="actions">
+        <a href="/admin/vacancies/{{ item.id }}/edit">Редактировать</a>
+        <form method="post" action="/admin/vacancies/{{ item.id }}/toggle"><button>{{ "Выключить" if item.is_active else "Включить" }}</button></form>
+        <form method="post" action="/admin/vacancies/{{ item.id }}/delete" onsubmit="return confirm('Удалить вакансию?')"><button class="danger">Удалить</button></form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

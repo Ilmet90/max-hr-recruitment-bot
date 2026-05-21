@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Фотографии условий службы</h1>
+<p class="lead">Эти фотографии доступны внешним пользователям в MAX-боте по кнопке “Условия службы” → “Просмотреть фотографии”. Фотографии можно разложить по альбомам.</p>
+
+{% if message %}<p class="notice">{{ message }}</p>{% endif %}
+{% if error %}<p class="alert">{{ error }}</p>{% endif %}
+
+<section class="panel">
+  <h2>Альбомы</h2>
+  <form class="form album-form" method="post" action="/admin/photo-albums/new">
+    <label>Название альбома<input name="title" required placeholder="Например: Фотографии со службы"></label>
+    <label>Описание<input name="description" placeholder="Краткое пояснение для сотрудников"></label>
+    <label>Порядок<input name="sort_order" type="number" value="100"></label>
+    <label class="check"><input name="is_active" type="checkbox" value="1" checked> Активен</label>
+    <button type="submit">Добавить альбом</button>
+  </form>
+
+  <div class="album-list">
+    {% for album in albums %}
+      <article class="album-card">
+        <form class="form album-edit-form" method="post" action="/admin/photo-albums/{{ album.id }}/edit">
+          <div>
+            <strong>#{{ album.id }}</strong>
+            <span class="badge">{{ "активен" if album.is_active else "отключён" }}</span>
+            <span class="small">Фото: {{ album.photo_count }}</span>
+          </div>
+          <label>Название<input name="title" value="{{ album.title }}" required></label>
+          <label>Описание<input name="description" value="{{ album.description or '' }}"></label>
+          <label>Порядок<input name="sort_order" type="number" value="{{ album.sort_order }}"></label>
+          <label class="check"><input name="is_active" type="checkbox" value="1" {% if album.is_active %}checked{% endif %}> Активен</label>
+          <div class="actions">
+            <button type="submit">Сохранить</button>
+          </div>
+        </form>
+          <div class="actions">
+            <form method="post" action="/admin/photo-albums/{{ album.id }}/toggle"><button>{{ "Отключить" if album.is_active else "Включить" }}</button></form>
+            <form method="post" action="/admin/photo-albums/{{ album.id }}/delete" onsubmit="return confirm('Удалить альбом?')"><button class="danger">Удалить</button></form>
+          </div>
+      </article>
+    {% else %}
+      <p class="small">Альбомов пока нет. При загрузке фото будет создан общий альбом.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Загрузить фотографию</h2>
+  <form class="form photo-upload-form" method="post" action="/admin/photos" enctype="multipart/form-data">
+    <label>Альбом
+      <select name="album_id" required>
+        {% for album in albums %}
+          <option value="{{ album.id }}">{{ album.title }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Файл JPG/PNG/WebP<input name="photo" type="file" accept=".jpg,.jpeg,.png,.webp" required></label>
+    <label>Подпись<input name="caption"></label>
+    <label>Порядок<input name="sort_order" type="number" value="100"></label>
+    <label class="check"><input name="is_active" type="checkbox" value="1" checked> Активна</label>
+    <button type="submit">Загрузить</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Фотографии</h2>
+  <div class="photo-list">
+    {% for photo in items %}
+      <article class="photo-row">
+        <img class="photo-thumb" src="/static/uploads/service/{{ photo.filename }}" alt="{{ photo.caption or photo.original_name or '' }}">
+        <form class="form photo-edit-form" method="post" action="/admin/photos/{{ photo.id }}/edit">
+          <div>
+            <strong>#{{ photo.id }}</strong>
+            <span class="badge">{{ "активна" if photo.is_active else "выключена" }}</span>
+            <span class="small">Файл: {{ photo.original_name or photo.filename }}</span>
+          </div>
+          <label>Подпись<input name="caption" value="{{ photo.caption or '' }}"></label>
+          <label>Альбом
+            <select name="album_id" required>
+              {% for album in albums %}
+                <option value="{{ album.id }}" {% if album.id == photo.album_id %}selected{% endif %}>{{ album.title }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>Порядок<input name="sort_order" type="number" value="{{ photo.sort_order }}"></label>
+          <label class="check"><input name="is_active" type="checkbox" value="1" {% if photo.is_active %}checked{% endif %}> Активна</label>
+          <div class="actions">
+            <button type="submit">Сохранить</button>
+          </div>
+        </form>
+          <div class="actions">
+            <form method="post" action="/admin/photos/{{ photo.id }}/toggle"><button>{{ "Выключить" if photo.is_active else "Включить" }}</button></form>
+            <form method="post" action="/admin/photos/{{ photo.id }}/delete" onsubmit="return confirm('Удалить фото?')"><button class="danger">Удалить</button></form>
+          </div>
+      </article>
+    {% else %}
+      <p class="small">Фотографий пока нет.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

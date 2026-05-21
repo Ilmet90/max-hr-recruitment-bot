@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Настройки организации</h1>
+{% for message in messages or [] %}<p class="notice">{{ message }}</p>{% endfor %}
+{% for error in errors or [] %}<p class="alert">{{ error }}</p>{% endfor %}
+
+<form class="form" method="post" action="/admin/settings/organization">
+  <section class="panel">
+    <h2>Основные сведения</h2>
+    <label>Полное название учреждения<input name="organization_full_name" value="{{ settings.organization_full_name }}" required></label>
+    <label>Краткое название<input name="organization_short_name" value="{{ settings.organization_short_name }}" required></label>
+    <label>Вышестоящий орган<input name="parent_organization" value="{{ settings.parent_organization }}"></label>
+    <label>Регион<input name="organization_region" value="{{ settings.organization_region }}"></label>
+    <label>Название сообщества/канала<input name="community_name" value="{{ settings.community_name }}"></label>
+    <label>Название бота<input name="bot_display_name" value="{{ settings.bot_display_name }}"></label>
+    <label>Подразделение, работающее с откликами<input name="hr_department_name" value="{{ settings.hr_department_name }}"></label>
+  </section>
+
+  <section class="panel">
+    <h2>Тексты для кандидатов</h2>
+    <label>Заголовок приветствия<input name="public_welcome_title" value="{{ settings.public_welcome_title }}"></label>
+    <label>Приветственный текст<textarea name="public_welcome_text">{{ settings.public_welcome_text }}</textarea></label>
+    <label>Текст перед кнопками меню<input name="public_menu_hint" value="{{ settings.public_menu_hint }}"></label>
+    <label>Текст после успешного отклика<textarea name="application_success_text">{{ settings.application_success_text }}</textarea></label>
+    <label>Текст после принятия вопроса<textarea name="question_success_text">{{ settings.question_success_text }}</textarea></label>
+    <label>Текст после принятия сообщения<textarea name="appeal_success_text">{{ settings.appeal_success_text }}</textarea></label>
+    <label>Предупреждение о персональных данных<textarea name="personal_data_warning">{{ settings.personal_data_warning }}</textarea></label>
+    <label>Общий текст контактов<textarea name="contacts_public_text">{{ settings.contacts_public_text }}</textarea></label>
+  </section>
+
+  <section class="panel">
+    <h2>Web-интерфейс</h2>
+    <label>Заголовок web-админки<input name="web_admin_title" value="{{ settings.web_admin_title }}"></label>
+    <label>Заголовок в шапке<input name="web_admin_header" value="{{ settings.web_admin_header }}"></label>
+  </section>
+
+  <section class="panel">
+    <h2>Цветовое оформление</h2>
+    <label>Основной цвет<input name="theme_primary_color" type="color" value="{{ settings.theme_primary_color }}"></label>
+    <label>Вторичный цвет<input name="theme_secondary_color" type="color" value="{{ settings.theme_secondary_color }}"></label>
+    <label>Акцентный цвет<input name="theme_accent_color" type="color" value="{{ settings.theme_accent_color }}"></label>
+  </section>
+
+  <button type="submit">Сохранить настройки организации</button>
+</form>
+{% endblock %}

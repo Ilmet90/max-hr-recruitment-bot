@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Настройки</h1>
+{% for message in messages or [] %}<p class="alert">{{ message }}</p>{% endfor %}
+{% for error in errors or [] %}<p class="alert">{{ error }}</p>{% endfor %}
+
+<section class="panel">
+  <h2>Служебный код регистрации сотрудников</h2>
+  <p class="small">Этот код используется сотрудниками отдела кадров для подачи заявки на доступ через команду /admin &lt;код&gt; в MAX-боте.</p>
+  <p><strong>Текущий код:</strong> {{ "установлен" if has_db_secret else "используется значение из .env" }}</p>
+  <form class="form" method="post" action="/admin/settings/admin-secret">
+    <label>Новый код<input name="new_secret" required></label>
+    <label>Повтор нового кода<input name="repeat_secret" required></label>
+    <button>Сохранить</button>
+  </form>
+</section>
+{% endblock %}

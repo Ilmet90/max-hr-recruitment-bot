@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Панель управления</h1>
+<p class="lead"><strong>{{ org_settings.organization_short_name }}</strong><br>{{ org_settings.organization_full_name }}</p>
+<section class="stats">
+  <div><strong>{{ vacancies }}</strong><span>вакансий</span></div>
+  <div><strong>{{ applications }}</strong><span>откликов</span></div>
+  <div><strong>{{ questions }}</strong><span>вопросов</span></div>
+  <div><strong>{{ appeals }}</strong><span>сообщений</span></div>
+  <div><strong>{{ admins }}</strong><span>получателей</span></div>
+</section>
+{% endblock %}

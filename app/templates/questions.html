@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Вопросы</h1>
+<table>
+  <thead><tr><th>ID</th><th>Дата</th><th>Вопрос</th><th>Контакт</th><th>Статус</th></tr></thead>
+  <tbody>
+  {% for item in items %}
+    <tr>
+      <td>{{ item.id }}</td>
+      <td>{{ item.created_at }}</td>
+      <td>{{ item.question_text }}</td>
+      <td>{{ item.contact }}</td>
+      <td>{% include "status_form.html" %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

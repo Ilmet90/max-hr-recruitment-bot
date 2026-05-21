@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Условия службы</h1>
+<form class="form" method="post" action="/admin/service">
+  {% for item in items %}
+    <section class="panel">
+      <h2>{{ service_info_label(item.key) }}</h2>
+      <p class="small">Технический ключ: {{ item.key }}</p>
+      <p>{{ service_info_help(item.key) }}</p>
+      <label>Заголовок<input name="title_{{ item.key }}" value="{{ item.title }}" required></label>
+      <label>Текст<textarea name="text_{{ item.key }}" required>{{ item.text }}</textarea></label>
+    </section>
+  {% endfor %}
+  <button type="submit">Сохранить</button>
+</form>
+{% endblock %}

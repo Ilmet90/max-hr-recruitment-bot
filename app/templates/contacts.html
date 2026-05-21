@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <h1>Контакты</h1>
+  <a class="button" href="/admin/contacts/new">Добавить</a>
+</div>
+<table>
+  <thead><tr><th>ID</th><th>Порядок</th><th>Название</th><th>Значение</th><th>Статус</th><th>Действия</th></tr></thead>
+  <tbody>
+  {% for item in items %}
+    <tr>
+      <td>{{ item.id }}</td>
+      <td>{{ item.sort_order }}</td>
+      <td>{{ item.title }}</td>
+      <td>{{ item.value }}</td>
+      <td>{{ "активен" if item.is_active else "выключен" }}</td>
+      <td class="actions">
+        <a href="/admin/contacts/{{ item.id }}/edit">Редактировать</a>
+        <form method="post" action="/admin/contacts/{{ item.id }}/toggle"><button>{{ "Выключить" if item.is_active else "Включить" }}</button></form>
+        <form method="post" action="/admin/contacts/{{ item.id }}/delete" onsubmit="return confirm('Удалить контакт?')"><button class="danger">Удалить</button></form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
