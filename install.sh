@@ -21,14 +21,6 @@ read_with_default() {
   printf '%s' "${value:-$default}"
 }
 
-read_secret() {
-  local prompt="$1"
-  local value
-  read -r -s -p "$prompt: " value
-  echo
-  printf '%s' "$value"
-}
-
 dotenv_escape() {
   local value="${1//\\/\\\\}"
   value="${value//\"/\\\"}"
@@ -43,23 +35,45 @@ write_env_line() {
 
 echo "== MAX HR Recruitment Bot installer =="
 
+echo
+echo "== Сведения об организации =="
 ORG_FULL_NAME="$(read_with_default "Полное название организации" "Название организации")"
 ORG_SHORT_NAME="$(read_with_default "Краткое название организации" "Организация")"
 PARENT_ORG="$(read_with_default "Вышестоящая организация" "Вышестоящая организация")"
 ORG_REGION="$(read_with_default "Регион" "Регион")"
 BOT_DISPLAY_NAME="$(read_with_default "Название бота" "Кадровый чат-бот")"
+
+echo
+echo "== Главная web-учётная запись =="
 WEB_LOGIN="$(read_with_default "Логин главной web-учётной записи" "admin")"
-WEB_PASSWORD="$(read_secret "Пароль главной web-учётной записи (оставьте пустым для генерации)")"
+echo
+echo "Пароль главной web-учётной записи"
+echo "Оставьте пустым, чтобы установщик сгенерировал пароль автоматически."
+read -r -p "Пароль: " WEB_PASSWORD
 PASSWORD_GENERATED=0
 if [[ -z "$WEB_PASSWORD" ]]; then
   WEB_PASSWORD="$(openssl rand -hex 8)"
   PASSWORD_GENERATED=1
 fi
-ADMIN_SECRET="$(read_secret "Служебный код для команды /admin (оставьте пустым для генерации)")"
+
+echo
+echo "== Служебный код для команды /admin =="
+echo "Этот код сотрудники будут вводить в MAX-боте для подачи заявки на доступ."
+echo "Оставьте пустым, чтобы установщик сгенерировал код автоматически."
+read -r -p "Служебный код: " ADMIN_SECRET
+ADMIN_SECRET_GENERATED=0
 if [[ -z "$ADMIN_SECRET" ]]; then
   ADMIN_SECRET="$(openssl rand -hex 4)"
+  ADMIN_SECRET_GENERATED=1
 fi
-MAX_BOT_TOKEN="$(read_secret "MAX_BOT_TOKEN (можно оставить пустым)")"
+
+echo
+echo "== MAX_BOT_TOKEN =="
+echo "Можно оставить пустым и указать позже в файле .env."
+read -r -p "MAX_BOT_TOKEN: " MAX_BOT_TOKEN
+
+echo
+echo "== Сетевые настройки =="
 APP_HOST="$(read_with_default "APP_HOST" "0.0.0.0")"
 APP_PORT="$(read_with_default "APP_PORT" "8000")"
 
@@ -112,13 +126,16 @@ chmod 600 "$INSTALL_DIR/.env"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 
 echo "== Инициализация базы данных =="
-runuser -u "$SERVICE_USER" -- env \
-  ORG_FULL_NAME="$ORG_FULL_NAME" \
-  ORG_SHORT_NAME="$ORG_SHORT_NAME" \
-  PARENT_ORG="$PARENT_ORG" \
-  ORG_REGION="$ORG_REGION" \
-  BOT_DISPLAY_NAME="$BOT_DISPLAY_NAME" \
-  "$INSTALL_DIR/.venv/bin/python" - <<'PY'
+echo "Рабочий каталог установки: $INSTALL_DIR"
+(
+  cd "$INSTALL_DIR"
+  runuser -u "$SERVICE_USER" -- env \
+    ORG_FULL_NAME="$ORG_FULL_NAME" \
+    ORG_SHORT_NAME="$ORG_SHORT_NAME" \
+    PARENT_ORG="$PARENT_ORG" \
+    ORG_REGION="$ORG_REGION" \
+    BOT_DISPLAY_NAME="$BOT_DISPLAY_NAME" \
+    "$INSTALL_DIR/.venv/bin/python" - <<'PY'
 import os
 from app.db import init_db, set_setting, update_org_settings
 
@@ -142,6 +159,7 @@ set_setting("bot_service_name", "max-hr-bot.service")
 set_setting("install_path", "/opt/max-hr-recruitment-bot")
 print("db ok")
 PY
+)
 
 echo "== Создание systemd-служб =="
 cat > "/etc/systemd/system/$ADMIN_SERVICE" <<EOF
@@ -195,11 +213,23 @@ echo "== Установка завершена =="
 echo "Web-админка: http://$SERVER_IP:$APP_PORT"
 echo "Логин главной учётной записи: $WEB_LOGIN"
 if [[ "$PASSWORD_GENERATED" -eq 1 ]]; then
-  echo "Сгенерированный пароль главной учётной записи: $WEB_PASSWORD"
+  echo "Сгенерирован пароль главной web-учётной записи: $WEB_PASSWORD"
+else
+  echo "Пароль главной web-учётной записи задан пользователем."
+fi
+if [[ "$ADMIN_SECRET_GENERATED" -eq 1 ]]; then
+  echo "Сгенерирован служебный код /admin: $ADMIN_SECRET"
+else
+  echo "Служебный код /admin задан пользователем."
 fi
 if [[ -z "$MAX_BOT_TOKEN" ]]; then
   echo
-  echo "MAX_BOT_TOKEN не задан. После получения токена внесите его в $INSTALL_DIR/.env и выполните:"
+  echo "MAX_BOT_TOKEN не задан."
+  echo "Web-админка установлена и запущена."
+  echo "После получения токена внесите его в:"
+  echo "$INSTALL_DIR/.env"
+  echo
+  echo "Затем выполните:"
   echo "sudo systemctl start $BOT_SERVICE"
   echo "sudo systemctl enable $BOT_SERVICE"
 fi
