@@ -334,7 +334,7 @@ def show_staff_menu(api: MaxAPI, chat_id: str, user_id: str, admin: dict[str, An
 
 
 def staff_vacancies_keyboard(vacancies: list[dict[str, Any]]) -> dict[str, Any]:
-    rows = [["Добавить вакансию"]]
+    rows = [["Добавить вакансию"], ["Синхронизировать с Работа России"]]
     rows.extend([[f"Управлять вакансией #{item['id']}"] for item in vacancies[:20]])
     rows.append(["Служебное меню"])
     return build_keyboard(rows)
@@ -431,6 +431,47 @@ def handle_vacancy_add(api: MaxAPI, chat_id: str, user_id: str, state_id: str, t
 def handle_staff_vacancy_state(api: MaxAPI, chat_id: str, user_id: str, state_id: str, command: str, text: str, state: dict[str, Any], admin: dict[str, Any]) -> bool:
     scenario = state.get("scenario")
     if scenario == "staff_vacancies":
+        if command == "синхронизировать с работа россии":
+            settings = db.get_trudvsem_settings()
+            company_code = (settings.get("trudvsem_company_code") or "").strip()
+            inn = (settings.get("trudvsem_inn") or "").strip()
+            if not company_code and not inn:
+                send(
+                    api,
+                    chat_id,
+                    "Импорт с портала «Работа России» не настроен. Укажите ИНН работодателя или код работодателя в web-админке: Вакансии → Импорт с Работа России.",
+                    user_id=user_id,
+                    keyboard=STAFF_BACK_KEYBOARD,
+                )
+                return True
+            if str(settings.get("trudvsem_enabled") or "0") != "1":
+                send(api, chat_id, "Импорт с портала «Работа России» отключён в настройках web-админки.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+                return True
+            result = trudvsem_import.import_trudvsem_vacancies(actor_id=admin["id"], actor_name=db.admin_display_name(admin))
+            if not result.get("ok"):
+                send(
+                    api,
+                    chat_id,
+                    "Не удалось получить вакансии с портала «Работа России». Попробуйте позже или выполните импорт через web-админку.",
+                    user_id=user_id,
+                    keyboard=STAFF_BACK_KEYBOARD,
+                )
+                return True
+            errors = "\n".join(result.get("errors") or []) or "нет"
+            send(
+                api,
+                chat_id,
+                (
+                    "Импорт завершён.\n"
+                    f"Добавлено: {result.get('added', 0)}\n"
+                    f"Обновлено: {result.get('updated', 0)}\n"
+                    f"Пропущено: {result.get('skipped', 0)}\n"
+                    f"Ошибки: {errors}"
+                ),
+                user_id=user_id,
+                keyboard=STAFF_BACK_KEYBOARD,
+            )
+            return True
         if command == "добавить вакансию":
             start_vacancy_add(api, chat_id, user_id, state_id)
             return True

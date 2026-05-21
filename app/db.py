@@ -111,6 +111,14 @@ DEFAULT_UPDATE_SETTINGS = {
     "update_last_at": "",
 }
 
+DEFAULT_TRUDVSEM_SETTINGS = {
+    "trudvsem_enabled": "0",
+    "trudvsem_company_code": "",
+    "trudvsem_inn": "",
+    "trudvsem_api_base": "http://opendata.trudvsem.ru/api/v1",
+    "trudvsem_last_sync_at": "",
+}
+
 SERVICE_INFO_LABELS = {
     "conditions": "Условия службы",
     "order": "Порядок поступления на службу",
@@ -301,9 +309,11 @@ def init_db() -> None:
         )
         ensure_admins_schema(conn)
         ensure_applications_schema(conn)
+        ensure_vacancies_external_schema(conn)
         ensure_service_photos_schema(conn)
         seed_default_org_settings(conn)
         seed_default_update_settings(conn)
+        seed_default_trudvsem_settings(conn)
         seed_db(conn)
 
 
@@ -355,6 +365,21 @@ def ensure_applications_schema(conn: sqlite3.Connection) -> None:
         if column not in columns:
             conn.execute(sql)
 
+
+
+def ensure_vacancies_external_schema(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(vacancies)").fetchall()}
+    migrations = {
+        "external_source": "ALTER TABLE vacancies ADD COLUMN external_source TEXT",
+        "external_id": "ALTER TABLE vacancies ADD COLUMN external_id TEXT",
+        "external_url": "ALTER TABLE vacancies ADD COLUMN external_url TEXT",
+        "external_updated_at": "ALTER TABLE vacancies ADD COLUMN external_updated_at TEXT",
+        "external_raw_json": "ALTER TABLE vacancies ADD COLUMN external_raw_json TEXT",
+    }
+    for column, sql in migrations.items():
+        if column not in columns:
+            conn.execute(sql)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_vacancies_external_source_id ON vacancies (external_source, external_id)")
 
 def ensure_default_photo_album_conn(conn: sqlite3.Connection) -> int:
     row = conn.execute("SELECT id FROM service_photo_albums WHERE title = ? ORDER BY id LIMIT 1", ("Фотографии со службы",)).fetchone()
@@ -416,6 +441,11 @@ def seed_default_update_settings(conn: sqlite3.Connection) -> None:
     for key, value in DEFAULT_UPDATE_SETTINGS.items():
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, value))
 
+
+
+def seed_default_trudvsem_settings(conn: sqlite3.Connection) -> None:
+    for key, value in DEFAULT_TRUDVSEM_SETTINGS.items():
+        conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, value))
 
 def seed_db(conn: sqlite3.Connection) -> None:
     created = now_iso()
@@ -563,6 +593,26 @@ def get_bot_service_name() -> str:
 def get_install_path() -> str:
     return get_setting("install_path", DEFAULT_UPDATE_SETTINGS["install_path"]).strip() or DEFAULT_UPDATE_SETTINGS["install_path"]
 
+
+
+def get_trudvsem_settings() -> dict[str, str]:
+    settings = DEFAULT_TRUDVSEM_SETTINGS.copy()
+    placeholders = ", ".join("?" for _ in DEFAULT_TRUDVSEM_SETTINGS)
+    rows = fetch_all(f"SELECT key, value FROM settings WHERE key IN ({placeholders})", tuple(DEFAULT_TRUDVSEM_SETTINGS.keys()))
+    for row in rows:
+        if row.get("value") is not None:
+            settings[str(row["key"])] = str(row["value"])
+    return settings
+
+
+def update_trudvsem_settings(data: dict[str, Any]) -> None:
+    for key in DEFAULT_TRUDVSEM_SETTINGS:
+        value = str(data.get(key, DEFAULT_TRUDVSEM_SETTINGS[key]) or "").strip()
+        set_setting(key, value)
+
+
+def set_trudvsem_last_sync_at() -> None:
+    set_setting("trudvsem_last_sync_at", now_iso())
 
 def get_admin_secret() -> str:
     saved = get_setting("admin_secret", "").strip()

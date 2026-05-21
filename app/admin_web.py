@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import time
+import traceback
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -19,6 +20,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import db
 from app import maintenance
+from app import trudvsem_import
 from app.max_api import MaxAPI
 
 
@@ -564,6 +566,139 @@ def about_restart_bot(request: Request) -> HTMLResponse:
 def vacancies(request: Request) -> HTMLResponse:
     require_admin(request)
     return render(request, "vacancies.html", {"items": db.list_vacancies()})
+
+
+@app.get("/admin/vacancies/import-trudvsem", response_class=HTMLResponse)
+def vacancies_import_trudvsem_page(request: Request) -> HTMLResponse:
+    require_content(request)
+    return render(
+        request,
+        "vacancies_import_trudvsem.html",
+        {
+            "settings": db.get_trudvsem_settings(),
+            "preview_items": [],
+            "import_items": [],
+        },
+    )
+
+
+@app.post("/admin/vacancies/import-trudvsem/settings", response_class=HTMLResponse)
+def vacancies_import_trudvsem_settings(
+    request: Request,
+    trudvsem_enabled: str | None = Form(None),
+    trudvsem_company_code: str = Form(""),
+    trudvsem_inn: str = Form(""),
+    trudvsem_api_base: str = Form(""),
+) -> HTMLResponse:
+    require_content(request)
+    db.update_trudvsem_settings(
+        {
+            "trudvsem_enabled": form_checkbox(trudvsem_enabled),
+            "trudvsem_company_code": trudvsem_company_code,
+            "trudvsem_inn": trudvsem_inn,
+            "trudvsem_api_base": trudvsem_api_base,
+        }
+    )
+    return render(
+        request,
+        "vacancies_import_trudvsem.html",
+        {
+            "settings": db.get_trudvsem_settings(),
+            "messages": ["Настройки импорта сохранены."],
+            "preview_items": [],
+            "import_items": [],
+        },
+    )
+
+
+@app.post("/admin/vacancies/import-trudvsem/preview", response_class=HTMLResponse)
+def vacancies_import_trudvsem_preview(request: Request) -> HTMLResponse:
+    require_content(request)
+    result: dict = {}
+    messages = []
+    errors = []
+    try:
+        result = trudvsem_import.preview_trudvsem_vacancies()
+    except Exception:
+        traceback.print_exc()
+        result = {"ok": False, "count": 0, "items": []}
+        errors.append("Не удалось получить вакансии с портала Работа России. Подробности смотрите в журнале сервера.")
+    if result.get("ok"):
+        messages.append(f"Найдено вакансий: {result.get('count', 0)}.")
+    elif not errors:
+        errors.append(result.get("error") or "Не удалось получить вакансии.")
+    return render(
+        request,
+        "vacancies_import_trudvsem.html",
+        {
+            "settings": db.get_trudvsem_settings(),
+            "preview": result,
+            "preview_items": result.get("items", []),
+            "import_items": [],
+            "messages": messages,
+            "errors": errors,
+        },
+    )
+
+
+@app.post("/admin/vacancies/import-trudvsem/import", response_class=HTMLResponse)
+def vacancies_import_trudvsem_run(request: Request) -> HTMLResponse:
+    require_content(request)
+    actor_id, actor_name = actor_for_audit(request)
+    result = trudvsem_import.import_trudvsem_vacancies(actor_id=actor_id, actor_name=actor_name)
+    messages = []
+    errors = []
+    if result.get("ok"):
+        messages.append(
+            f"Импорт завершён. Добавлено: {result.get('added', 0)}. "
+            f"Обновлено: {result.get('updated', 0)}. Пропущено: {result.get('skipped', 0)}."
+        )
+    else:
+        errors.append("Не удалось выполнить импорт.")
+    errors.extend(result.get("errors") or [])
+    return render(
+        request,
+        "vacancies_import_trudvsem.html",
+        {
+            "settings": db.get_trudvsem_settings(),
+            "import_result": result,
+            "preview_items": [],
+            "import_items": result.get("items", []),
+            "messages": messages,
+            "errors": errors,
+        },
+    )
+
+
+@app.post("/admin/vacancies/import-trudvsem/renormalize", response_class=HTMLResponse)
+def vacancies_import_trudvsem_renormalize(request: Request) -> HTMLResponse:
+    require_content(request)
+    result = trudvsem_import.renormalize_existing_trudvsem_vacancies()
+    actor_id, actor_name = actor_for_audit(request)
+    db.audit_log(
+        actor_id,
+        actor_name,
+        "trudvsem_vacancies_renormalized",
+        "vacancy",
+        None,
+        f"Обновлено: {result.get('updated', 0)}; пропущено: {result.get('skipped', 0)}",
+    )
+    messages = [
+        f"Переочистка завершена. Обновлено: {result.get('updated', 0)}. "
+        f"Пропущено: {result.get('skipped', 0)}."
+    ]
+    return render(
+        request,
+        "vacancies_import_trudvsem.html",
+        {
+            "settings": db.get_trudvsem_settings(),
+            "renormalize_result": result,
+            "preview_items": [],
+            "import_items": [],
+            "messages": messages,
+            "errors": result.get("errors") or [],
+        },
+    )
 
 
 @app.get("/admin/vacancies/new", response_class=HTMLResponse)
