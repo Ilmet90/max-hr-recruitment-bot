@@ -150,11 +150,24 @@ textarea { min-height: 120px; resize: vertical; }
 }
 .photo-row > .actions { grid-column: 2; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
-.stats div {
+.stats .stat-card-link {
+  display: block;
   background: rgba(10,34,60,.96);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 18px;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease, background .15s ease;
+}
+.stats .stat-card-link:hover,
+.stats .stat-card-link:focus-visible {
+  background: rgba(14,45,78,.98);
+  border-color: var(--theme-accent);
+  box-shadow: 0 8px 20px rgba(0,0,0,.16);
+  transform: translateY(-1px);
+  outline: none;
 }
 .stats strong { display: block; font-size: 30px; color: var(--theme-accent-light); }
 .stats span { color: var(--theme-muted); }
