@@ -1042,22 +1042,34 @@ def show_assignment_staff(api: MaxAPI, chat_id: str, user_id: str, state_id: str
     if not app or int(app.get("is_archived") or 0) == 1:
         send(api, chat_id, "Отклик не найден или находится в архиве.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
         return
-    staff = [
+    staff_all = [
         item
         for item in db.active_staff()
         if int(item.get("approved") or 0) == 1
         and int(item.get("is_active") or 0) == 1
         and int(item.get("can_use_bot_admin") or 0) == 1
     ]
-    if not staff:
+    if not staff_all:
         send(api, chat_id, "Нет сотрудников, доступных для назначения.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
         return
-    user_states[state_id] = {"scenario": "staff_assign_application_staff", "application_id": application_id}
-    rows = [[f"Назначить сотруднику #{item['id']}: {db.admin_display_name(item)}"] for item in staff[:20]]
+    staff = staff_all[:15]
+    staff_choices = {str(index): int(item["id"]) for index, item in enumerate(staff, start=1)}
+    user_states[state_id] = {
+        "scenario": "staff_assign_application_staff",
+        "application_id": application_id,
+        "staff_choices": staff_choices,
+    }
+    rows = [[f"Выбрать {index}"] for index in staff_choices]
     rows.extend([["Отмена"], ["Служебное меню"]])
-    text = f"Отклик для назначения:\n\n{format_application_assignment_line(app)}\n\nВыберите ответственного сотрудника."
-    send(api, chat_id, text, user_id=user_id, keyboard=build_keyboard(rows))
-
+    lines = [
+        f"Отклик для назначения:\n\n{format_application_assignment_line(app)}",
+        "Выберите ответственного сотрудника:",
+    ]
+    for index, item in enumerate(staff, start=1):
+        lines.append(f"{index}. {db.admin_display_name(item)} — {db.role_label(item.get('role')).lower()}")
+    if len(staff_all) > len(staff):
+        lines.append("\nПоказаны первые 15 сотрудников. Остальных можно назначить через панель управления.")
+    send(api, chat_id, "\n".join(lines), user_id=user_id, keyboard=build_keyboard(rows))
 
 def parse_hash_id(text: str) -> int | None:
     match = re.search(r"#\s*(\d+)", text)
@@ -1129,7 +1141,11 @@ def handle_staff_assignment_state(
                 send(api, chat_id, "Не удалось определить номер отклика.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
             return True
     if scenario == "staff_assign_application_staff":
-        if command.startswith("назначить сотруднику"):
+        choice = ""
+        match = re.fullmatch(r"(?:выбрать\s+)?(\d+)", command)
+        if match:
+            choice = match.group(1)
+        elif command.startswith("назначить сотруднику"):
             assignee_id = parse_hash_id(text)
             if assignee_id:
                 application_id = int(state.get("application_id") or 0)
@@ -1137,6 +1153,16 @@ def handle_staff_assignment_state(
                 assign_application_via_bot(api, chat_id, user_id, application_id, assignee_id, admin)
             else:
                 send(api, chat_id, "Не удалось определить сотрудника.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+            return True
+        if choice:
+            staff_choices = state.get("staff_choices") or {}
+            assignee_id = staff_choices.get(choice)
+            if assignee_id:
+                application_id = int(state.get("application_id") or 0)
+                user_states.pop(state_id, None)
+                assign_application_via_bot(api, chat_id, user_id, application_id, int(assignee_id), admin)
+            else:
+                send(api, chat_id, "Выберите сотрудника кнопкой или отправьте номер из списка.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
             return True
     return False
 
@@ -1469,6 +1495,7 @@ def run_polling() -> None:
 
     db.init_db()
     api = MaxAPI(token)
+    ensure_public_bot_commands(api)
     marker: str | None = None
     print("MAX-бот запущен. Для остановки нажмите Ctrl+C.")
     while True:
