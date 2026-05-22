@@ -116,6 +116,7 @@ def render(request: Request, template: str, context: dict | None = None) -> HTML
         "service_info_help": db.service_info_help,
         "access_label": db.access_label,
         "bool_label": db.bool_label,
+        "maintenance_sudoers_command": maintenance.sudoers_setup_command(),
     }
     if context:
         data.update(context)
@@ -533,6 +534,17 @@ def about_update(request: Request) -> HTMLResponse:
     require_admin(request)
     if not has_head_rights(request):
         raise HTTPException(status_code=403)
+    sudoers = maintenance.check_maintenance_sudoers()
+    if not sudoers["ok"]:
+        return render(
+            request,
+            "about.html",
+            {
+                "info": maintenance.check_updates(),
+                "can_maintain": True,
+                "errors": [sudoers["message"]],
+            },
+        )
     ok, output = maintenance.run_update_script()
     messages = ["Обновление выполнено. Службы перезапущены."] if ok else []
     errors = [] if ok else ["Не удалось выполнить обновление."]

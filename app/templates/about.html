@@ -23,6 +23,11 @@
 {% if can_maintain %}
   <section class="panel">
     <h2>Обслуживание</h2>
+    <p class="small">
+      Для обновления и перезапуска служб из web-интерфейса выполните на сервере один раз:
+      <code>{{ maintenance_sudoers_command }}</code>.
+      Если права не настроены, обновление не начнётся и службы не будут остановлены.
+    </p>
     <div class="actions">
       <form method="post" action="/admin/about/check-updates">
         <button>Проверить обновления</button>

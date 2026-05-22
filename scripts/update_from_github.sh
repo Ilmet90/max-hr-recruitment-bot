@@ -7,7 +7,9 @@ BRANCH_DEFAULT="main"
 ADMIN_SERVICE_DEFAULT="max-hr-admin.service"
 BOT_SERVICE_DEFAULT="max-hr-bot.service"
 TMP_DIR="/tmp/max-hr-recruitment-bot-update"
+SYSTEMCTL="$(command -v systemctl || true)"
 STAMP="$(date +%Y%m%d_%H%M%S)"
+UPDATE_STARTED=0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -25,6 +27,12 @@ mkdir -p "$APP_DIR/logs" "$APP_DIR/backups"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo "[$(date '+%F %T')] Начато обновление из GitHub"
+
+if [[ -z "$SYSTEMCTL" ]]; then
+  echo "systemctl не найден."
+  exit 20
+fi
+
 cd "$APP_DIR"
 
 if SETTINGS_OUTPUT="$("$APP_DIR/.venv/bin/python" - <<'PY' 2>/dev/null
@@ -62,9 +70,54 @@ fi
 cd "$APP_DIR"
 mkdir -p "$APP_DIR/logs" "$APP_DIR/backups"
 
-echo "Остановка служб"
-sudo -n systemctl stop "$BOT_SERVICE" || true
-sudo -n systemctl stop "$ADMIN_SERVICE" || true
+sudoers_hint() {
+  echo "Управление службами не настроено. Выполните один раз:"
+  echo "sudo bash $APP_DIR/scripts/setup_maintenance_sudoers.sh"
+}
+
+check_sudoers_for_service() {
+  local service="$1"
+  local output=""
+  local code=0
+  set +e
+  output="$(sudo -n "$SYSTEMCTL" status "$service" 2>&1 >/dev/null)"
+  code=$?
+  set -e
+  if [[ "$code" -eq 0 || "$code" -eq 3 || "$code" -eq 4 ]]; then
+    return 0
+  fi
+  sudoers_hint
+  if [[ -n "$output" ]]; then
+    echo "$output"
+  fi
+  return 1
+}
+
+bot_token_configured() {
+  [[ -f "$APP_DIR/.env" ]] || return 1
+  local value
+  value="$(grep -E '^MAX_BOT_TOKEN=' "$APP_DIR/.env" 2>/dev/null | tail -n 1 | cut -d= -f2- | tr -d '[:space:]' || true)"
+  [[ -n "$value" && "$value" != "change-me" && "$value" != "your-token" && "$value" != "MAX_BOT_TOKEN" && "$value" != "put-token-here" ]]
+}
+
+restore_services_on_error() {
+  local code=$?
+  if [[ "$UPDATE_STARTED" -eq 1 ]]; then
+    echo "Обновление прервано ошибкой. Пытаюсь вернуть службы."
+    sudo -n "$SYSTEMCTL" start "$ADMIN_SERVICE" || true
+    if bot_token_configured; then
+      sudo -n "$SYSTEMCTL" start "$BOT_SERVICE" || true
+    fi
+  fi
+  rm -rf "$TMP_DIR"
+  exit "$code"
+}
+
+trap restore_services_on_error ERR
+
+echo "Проверка прав sudoers"
+check_sudoers_for_service "$ADMIN_SERVICE" || exit 20
+check_sudoers_for_service "$BOT_SERVICE" || exit 20
 
 echo "Резервное копирование"
 if [[ -f "$APP_DIR/data/bot.sqlite3" ]]; then
@@ -77,6 +130,11 @@ fi
 echo "Загрузка репозитория"
 rm -rf "$TMP_DIR"
 git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$TMP_DIR"
+
+UPDATE_STARTED=1
+
+echo "Остановка службы MAX-бота"
+sudo -n "$SYSTEMCTL" stop "$BOT_SERVICE" || true
 
 echo "Синхронизация кода"
 rsync -a --delete \
@@ -106,9 +164,19 @@ set_installed_commit(sys.argv[1])
 print("installed_commit saved")
 PY
 
-echo "Запуск служб"
-sudo -n systemctl start "$ADMIN_SERVICE"
-sudo -n systemctl start "$BOT_SERVICE"
+echo "Запуск службы MAX-бота"
+if bot_token_configured; then
+  sudo -n "$SYSTEMCTL" start "$BOT_SERVICE" || echo "MAX_BOT_TOKEN не задан или служба бота не запущена — запуск бота пропущен."
+else
+  echo "MAX_BOT_TOKEN не задан или служба бота не запущена — запуск бота пропущен."
+fi
+
+echo "Плановый перезапуск web-админки"
+(
+  sleep 2
+  sudo -n "$SYSTEMCTL" restart "$ADMIN_SERVICE"
+) >/dev/null 2>&1 &
 
 rm -rf "$TMP_DIR"
-echo "[$(date '+%F %T')] Обновление завершено"
+trap - ERR
+echo "[$(date '+%F %T')] Обновление завершено. Web-админка будет перезапущена в самом конце."

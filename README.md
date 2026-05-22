@@ -198,9 +198,10 @@ sudo systemctl enable max-hr-bot.service
 Аналогичный раздел есть в `/staff`. Перед использованием кнопок обслуживания настройте ограниченный sudoers:
 
 ```bash
-cd /opt/max-hr-recruitment-bot
-sudo bash scripts/setup_maintenance_sudoers.sh
+sudo bash /opt/max-hr-recruitment-bot/scripts/setup_maintenance_sudoers.sh
 ```
+
+Обновление через web-интерфейс сначала проверяет `sudoers`. Если sudoers не настроен, web-интерфейс покажет предупреждение и не остановит службы. При корректных правах обновление делает backup, синхронизирует код и перезапускает web-админку только в самом конце.
 
 При обновлении сохраняются:
 
