@@ -1,6 +1,23 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Отклики</h1>
+<div class="page-head">
+  <div>
+    <h1>Отклики</h1>
+    {% if vacancy %}
+      <p class="small">Отклики на вакансию: {{ vacancy.title }}</p>
+    {% endif %}
+  </div>
+  {% if vacancy_id %}
+    <a class="button" href="/admin/applications?view={{ view }}">Показать все отклики</a>
+  {% endif %}
+</div>
+
+<div class="actions">
+  <a class="button{% if view == 'active' %} secondary{% endif %}" href="/admin/applications?view=active{% if vacancy_id %}&vacancy_id={{ vacancy_id }}{% endif %}">Активные</a>
+  <a class="button{% if view == 'archive' %} secondary{% endif %}" href="/admin/applications?view=archive{% if vacancy_id %}&vacancy_id={{ vacancy_id }}{% endif %}">Архив</a>
+  <a class="button{% if view == 'all' %} secondary{% endif %}" href="/admin/applications?view=all{% if vacancy_id %}&vacancy_id={{ vacancy_id }}{% endif %}">Все</a>
+</div>
+
 <table>
   <thead>
     <tr><th>ID</th><th>Дата</th><th>Вакансия</th><th>ФИО</th><th>Телефон</th><th>Статус</th><th>Ответственный</th><th>Дата принятия</th><th>Действия</th></tr>
@@ -10,36 +27,49 @@
     <tr>
       <td>{{ item.id }}</td>
       <td>{{ item.created_at }}</td>
-      <td>{{ item.vacancy_title }}</td>
+      <td>
+        {{ item.vacancy_title }}
+        {% if item.is_archived %}
+          <div class="small">В архиве{% if item.archived_at %}: {{ item.archived_at }}{% endif %}</div>
+        {% endif %}
+      </td>
       <td>{{ item.full_name }}<div class="small">Возраст: {{ item.age }}<br>Образование: {{ item.education }}<br>Служба: {{ item.military_service }}<br>Время: {{ item.preferred_time }}<br>{{ item.comment }}</div></td>
       <td>{{ item.phone }}</td>
       <td>{{ application_status_label(item.status) }}</td>
       <td>{{ item.assigned_to_name or "не назначен" }}</td>
       <td>{{ item.taken_at or "" }}</td>
       <td class="actions">
-        {% if not item.assigned_to_admin_id and item.status == "new" and current_admin and current_admin.role != "superadmin" %}
-          <form method="post" action="/admin/applications/{{ item.id }}/take"><button>Принять в работу</button></form>
-        {% endif %}
-        {% if can_assign %}
-          <form method="post" action="/admin/applications/{{ item.id }}/assign">
-            <select name="assignee_id">
-              {% for admin in staff %}
-                <option value="{{ admin.id }}">{{ admin.display_name or admin.web_login or admin.max_user_id }}</option>
-              {% endfor %}
+        {% if not item.is_archived %}
+          {% if not item.assigned_to_admin_id and item.status == "new" and current_admin and current_admin.role != "superadmin" %}
+            <form method="post" action="/admin/applications/{{ item.id }}/take{% if return_query %}?{{ return_query }}{% endif %}"><button>Принять в работу</button></form>
+          {% endif %}
+          {% if can_assign %}
+            <form method="post" action="/admin/applications/{{ item.id }}/assign{% if return_query %}?{{ return_query }}{% endif %}">
+              <select name="assignee_id">
+                {% for admin in staff %}
+                  <option value="{{ admin.id }}">{{ admin.display_name or admin.web_login or admin.max_user_id }}</option>
+                {% endfor %}
+              </select>
+              <button>Назначить</button>
+            </form>
+            <form method="post" action="/admin/applications/{{ item.id }}/release{% if return_query %}?{{ return_query }}{% endif %}"><button>Снять</button></form>
+          {% endif %}
+          <form method="post" action="/admin/applications/{{ item.id }}/status{% if return_query %}?{{ return_query }}{% endif %}" class="status-form">
+            <select name="status">
+              <option value="new" {% if item.status == "new" %}selected{% endif %}>Новый</option>
+              <option value="in_work" {% if item.status == "in_work" %}selected{% endif %}>В работе</option>
+              <option value="done" {% if item.status == "done" %}selected{% endif %}>Обработан</option>
+              <option value="rejected" {% if item.status == "rejected" %}selected{% endif %}>Отклонён</option>
             </select>
-            <button>Назначить</button>
+            <button>OK</button>
           </form>
-          <form method="post" action="/admin/applications/{{ item.id }}/release"><button>Снять</button></form>
+          <form method="post" action="/admin/applications/{{ item.id }}/archive{% if return_query %}?{{ return_query }}{% endif %}"><button>Архивировать</button></form>
+        {% else %}
+          <form method="post" action="/admin/applications/{{ item.id }}/unarchive{% if return_query %}?{{ return_query }}{% endif %}"><button>Вернуть из архива</button></form>
         {% endif %}
-        <form method="post" action="/admin/applications/{{ item.id }}/status" class="status-form">
-          <select name="status">
-            <option value="new" {% if item.status == "new" %}selected{% endif %}>Новый</option>
-            <option value="in_work" {% if item.status == "in_work" %}selected{% endif %}>В работе</option>
-            <option value="done" {% if item.status == "done" %}selected{% endif %}>Обработан</option>
-            <option value="rejected" {% if item.status == "rejected" %}selected{% endif %}>Отклонён</option>
-          </select>
-          <button>OK</button>
-        </form>
+        {% if can_delete_permanently %}
+          <form method="post" action="/admin/applications/{{ item.id }}/delete-permanently{% if return_query %}?{{ return_query }}{% endif %}" onsubmit="return confirm('Удалить запись полностью? Это действие нельзя отменить.')"><button class="danger">Удалить полностью</button></form>
+        {% endif %}
       </td>
     </tr>
   {% endfor %}

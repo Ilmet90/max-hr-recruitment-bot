@@ -205,6 +205,10 @@ def can_assign_applications(request: Request) -> bool:
     return has_head_rights(request)
 
 
+def can_delete_records_permanently(request: Request) -> bool:
+    return has_head_rights(request)
+
+
 def can_reset_admin_password(request: Request, target: dict | None) -> bool:
     if not target or not can_manage_users(request):
         return False
@@ -236,6 +240,25 @@ def require_superadmin(request: Request) -> None:
 def actor_for_audit(request: Request) -> tuple[int | None, str]:
     admin = current_admin(request) or {}
     return admin.get("id"), admin.get("name", "Система")
+
+
+def archive_view(request: Request) -> str:
+    view = request.query_params.get("view", "active")
+    return view if view in {"active", "archive", "all"} else "active"
+
+
+def collection_query(request: Request, include_vacancy: bool = False) -> str:
+    params: dict[str, str] = {"view": archive_view(request)}
+    vacancy_id = request.query_params.get("vacancy_id") if include_vacancy else None
+    if vacancy_id:
+        params["vacancy_id"] = vacancy_id
+    return urlencode(params)
+
+
+def redirect_to_collection(table: str, request: Request) -> RedirectResponse:
+    include_vacancy = table == "applications"
+    query = collection_query(request, include_vacancy=include_vacancy)
+    return redirect(f"/admin/{table}?{query}")
 
 
 def max_api_client() -> MaxAPI | None:
@@ -565,7 +588,14 @@ def about_restart_bot(request: Request) -> HTMLResponse:
 @app.get("/admin/vacancies", response_class=HTMLResponse)
 def vacancies(request: Request) -> HTMLResponse:
     require_admin(request)
-    return render(request, "vacancies.html", {"items": db.list_vacancies()})
+    return render(
+        request,
+        "vacancies.html",
+        {
+            "items": db.list_vacancies(),
+            "application_counts": db.vacancy_application_counts(),
+        },
+    )
 
 
 @app.get("/admin/vacancies/import-trudvsem", response_class=HTMLResponse)
@@ -1030,14 +1060,23 @@ def contact_delete(request: Request, contact_id: int) -> RedirectResponse:
 @app.get("/admin/applications", response_class=HTMLResponse)
 def applications(request: Request) -> HTMLResponse:
     require_admin(request)
+    view = archive_view(request)
+    vacancy_id_text = request.query_params.get("vacancy_id", "").strip()
+    vacancy_id = int(vacancy_id_text) if vacancy_id_text.isdigit() else None
+    vacancy = db.get_vacancy(vacancy_id) if vacancy_id else None
     return render(
         request,
         "applications.html",
         {
-            "items": db.list_applications(),
+            "items": db.list_applications(view=view, vacancy_id=vacancy_id),
             "table": "applications",
             "staff": db.active_staff(),
             "can_assign": can_assign_applications(request),
+            "can_delete_permanently": can_delete_records_permanently(request),
+            "view": view,
+            "vacancy_id": vacancy_id,
+            "vacancy": vacancy,
+            "return_query": collection_query(request, include_vacancy=True),
         },
     )
 
@@ -1045,13 +1084,35 @@ def applications(request: Request) -> HTMLResponse:
 @app.get("/admin/questions", response_class=HTMLResponse)
 def questions(request: Request) -> HTMLResponse:
     require_admin(request)
-    return render(request, "questions.html", {"items": db.list_questions(), "table": "questions"})
+    view = archive_view(request)
+    return render(
+        request,
+        "questions.html",
+        {
+            "items": db.list_questions(view=view),
+            "table": "questions",
+            "view": view,
+            "return_query": collection_query(request),
+            "can_delete_permanently": can_delete_records_permanently(request),
+        },
+    )
 
 
 @app.get("/admin/appeals", response_class=HTMLResponse)
 def appeals(request: Request) -> HTMLResponse:
     require_admin(request)
-    return render(request, "appeals.html", {"items": db.list_appeals(), "table": "appeals"})
+    view = archive_view(request)
+    return render(
+        request,
+        "appeals.html",
+        {
+            "items": db.list_appeals(view=view),
+            "table": "appeals",
+            "view": view,
+            "return_query": collection_query(request),
+            "can_delete_permanently": can_delete_records_permanently(request),
+        },
+    )
 
 
 @app.post("/admin/{table}/{item_id}/status")
@@ -1067,7 +1128,7 @@ def status_update(request: Request, table: str, item_id: int, status: str = Form
         db.update_application_status(item_id, status, (admin or {}).get("raw"))
     else:
         db.update_status(table, item_id, status)
-    return redirect(f"/admin/{table}")
+    return redirect_to_collection(table, request)
 
 
 @app.post("/admin/applications/{application_id}/take")
@@ -1077,7 +1138,7 @@ def application_take(request: Request, application_id: int) -> RedirectResponse:
     if not admin or admin["role"] == "superadmin":
         raise HTTPException(status_code=403)
     db.take_application(application_id, admin["raw"])
-    return redirect("/admin/applications")
+    return redirect_to_collection("applications", request)
 
 
 @app.post("/admin/applications/{application_id}/assign")
@@ -1087,7 +1148,7 @@ def application_assign(request: Request, application_id: int, assignee_id: int =
         raise HTTPException(status_code=403)
     actor = current_admin(request) or {}
     db.assign_application(application_id, assignee_id, actor.get("raw"), actor.get("name", "superadmin"))
-    return redirect("/admin/applications")
+    return redirect_to_collection("applications", request)
 
 
 @app.post("/admin/applications/{application_id}/release")
@@ -1097,7 +1158,85 @@ def application_release(request: Request, application_id: int) -> RedirectRespon
         raise HTTPException(status_code=403)
     actor = current_admin(request) or {}
     db.release_application(application_id, actor.get("raw"), actor.get("name", "superadmin"))
-    return redirect("/admin/applications")
+    return redirect_to_collection("applications", request)
+
+
+@app.post("/admin/applications/{application_id}/archive")
+def application_archive(request: Request, application_id: int) -> RedirectResponse:
+    require_admin(request)
+    actor_id, actor_name = actor_for_audit(request)
+    db.archive_record("applications", application_id, actor_id, actor_name)
+    return redirect_to_collection("applications", request)
+
+
+@app.post("/admin/applications/{application_id}/unarchive")
+def application_unarchive(request: Request, application_id: int) -> RedirectResponse:
+    require_admin(request)
+    actor_id, actor_name = actor_for_audit(request)
+    db.unarchive_record("applications", application_id, actor_id, actor_name)
+    return redirect_to_collection("applications", request)
+
+
+@app.post("/admin/applications/{application_id}/delete-permanently")
+def application_delete_permanently(request: Request, application_id: int) -> RedirectResponse:
+    require_admin(request)
+    if not can_delete_records_permanently(request):
+        raise HTTPException(status_code=403)
+    actor_id, actor_name = actor_for_audit(request)
+    db.delete_record_permanently("applications", application_id, actor_id, actor_name)
+    return redirect_to_collection("applications", request)
+
+
+@app.post("/admin/questions/{question_id}/archive")
+def question_archive(request: Request, question_id: int) -> RedirectResponse:
+    require_admin(request)
+    actor_id, actor_name = actor_for_audit(request)
+    db.archive_record("questions", question_id, actor_id, actor_name)
+    return redirect_to_collection("questions", request)
+
+
+@app.post("/admin/questions/{question_id}/unarchive")
+def question_unarchive(request: Request, question_id: int) -> RedirectResponse:
+    require_admin(request)
+    actor_id, actor_name = actor_for_audit(request)
+    db.unarchive_record("questions", question_id, actor_id, actor_name)
+    return redirect_to_collection("questions", request)
+
+
+@app.post("/admin/questions/{question_id}/delete-permanently")
+def question_delete_permanently(request: Request, question_id: int) -> RedirectResponse:
+    require_admin(request)
+    if not can_delete_records_permanently(request):
+        raise HTTPException(status_code=403)
+    actor_id, actor_name = actor_for_audit(request)
+    db.delete_record_permanently("questions", question_id, actor_id, actor_name)
+    return redirect_to_collection("questions", request)
+
+
+@app.post("/admin/appeals/{appeal_id}/archive")
+def appeal_archive(request: Request, appeal_id: int) -> RedirectResponse:
+    require_admin(request)
+    actor_id, actor_name = actor_for_audit(request)
+    db.archive_record("appeals", appeal_id, actor_id, actor_name)
+    return redirect_to_collection("appeals", request)
+
+
+@app.post("/admin/appeals/{appeal_id}/unarchive")
+def appeal_unarchive(request: Request, appeal_id: int) -> RedirectResponse:
+    require_admin(request)
+    actor_id, actor_name = actor_for_audit(request)
+    db.unarchive_record("appeals", appeal_id, actor_id, actor_name)
+    return redirect_to_collection("appeals", request)
+
+
+@app.post("/admin/appeals/{appeal_id}/delete-permanently")
+def appeal_delete_permanently(request: Request, appeal_id: int) -> RedirectResponse:
+    require_admin(request)
+    if not can_delete_records_permanently(request):
+        raise HTTPException(status_code=403)
+    actor_id, actor_name = actor_for_audit(request)
+    db.delete_record_permanently("appeals", appeal_id, actor_id, actor_name)
+    return redirect_to_collection("appeals", request)
 
 
 @app.get("/admin/admins", response_class=HTMLResponse)

@@ -309,6 +309,7 @@ def init_db() -> None:
         )
         ensure_admins_schema(conn)
         ensure_applications_schema(conn)
+        ensure_archive_schema(conn)
         ensure_vacancies_external_schema(conn)
         ensure_service_photos_schema(conn)
         seed_default_org_settings(conn)
@@ -365,6 +366,20 @@ def ensure_applications_schema(conn: sqlite3.Connection) -> None:
         if column not in columns:
             conn.execute(sql)
 
+
+
+def ensure_archive_schema(conn: sqlite3.Connection) -> None:
+    migrations = {
+        "is_archived": "INTEGER DEFAULT 0",
+        "archived_at": "TEXT",
+        "archived_by_admin_id": "INTEGER",
+        "archived_by_name": "TEXT",
+    }
+    for table in ("applications", "questions", "appeals"):
+        columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        for column, definition in migrations.items():
+            if column not in columns:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def ensure_vacancies_external_schema(conn: sqlite3.Connection) -> None:
@@ -682,6 +697,26 @@ def list_vacancies(active_only: bool = False) -> list[dict[str, Any]]:
     return fetch_all(f"SELECT * FROM vacancies {where} ORDER BY sort_order, id")
 
 
+def vacancy_application_counts() -> dict[int, dict[str, int]]:
+    rows = fetch_all(
+        """
+        SELECT vacancy_id,
+               SUM(CASE WHEN COALESCE(is_archived, 0) = 0 THEN 1 ELSE 0 END) AS active_count,
+               SUM(CASE WHEN COALESCE(is_archived, 0) = 1 THEN 1 ELSE 0 END) AS archived_count
+        FROM applications
+        WHERE vacancy_id IS NOT NULL
+        GROUP BY vacancy_id
+        """
+    )
+    return {
+        int(row["vacancy_id"]): {
+            "active": int(row.get("active_count") or 0),
+            "archive": int(row.get("archived_count") or 0),
+        }
+        for row in rows
+    }
+
+
 def get_vacancy(vacancy_id: int) -> dict[str, Any] | None:
     return fetch_one("SELECT * FROM vacancies WHERE id = ?", (vacancy_id,))
 
@@ -979,16 +1014,31 @@ def create_appeal(max_user_id: str, full_name: str, phone: str, appeal_text: str
     )
 
 
-def list_applications() -> list[dict[str, Any]]:
-    return fetch_all("SELECT * FROM applications ORDER BY id DESC")
+def _archive_where(view: str, alias: str = "") -> str:
+    prefix = f"{alias}." if alias else ""
+    if view == "archive":
+        return f"COALESCE({prefix}is_archived, 0) = 1"
+    if view == "all":
+        return "1 = 1"
+    return f"COALESCE({prefix}is_archived, 0) = 0"
 
 
-def list_questions() -> list[dict[str, Any]]:
-    return fetch_all("SELECT * FROM questions ORDER BY id DESC")
+def list_applications(view: str = "active", vacancy_id: int | None = None) -> list[dict[str, Any]]:
+    conditions = [_archive_where(view)]
+    params: list[Any] = []
+    if vacancy_id:
+        conditions.append("vacancy_id = ?")
+        params.append(vacancy_id)
+    where = f"WHERE {' AND '.join(conditions)}"
+    return fetch_all(f"SELECT * FROM applications {where} ORDER BY id DESC", tuple(params))
 
 
-def list_appeals() -> list[dict[str, Any]]:
-    return fetch_all("SELECT * FROM appeals ORDER BY id DESC")
+def list_questions(view: str = "active") -> list[dict[str, Any]]:
+    return fetch_all(f"SELECT * FROM questions WHERE {_archive_where(view)} ORDER BY id DESC")
+
+
+def list_appeals(view: str = "active") -> list[dict[str, Any]]:
+    return fetch_all(f"SELECT * FROM appeals WHERE {_archive_where(view)} ORDER BY id DESC")
 
 
 def update_status(table: str, item_id: int, status: str) -> None:
@@ -997,6 +1047,56 @@ def update_status(table: str, item_id: int, status: str) -> None:
     if status not in {"new", "in_work", "done"}:
         raise ValueError("Unsupported status")
     execute(f"UPDATE {table} SET status = ? WHERE id = ?", (status, item_id))
+
+
+ARCHIVE_TARGETS = {
+    "applications": "application",
+    "questions": "question",
+    "appeals": "appeal",
+}
+
+
+def _archive_target(table: str) -> str:
+    if table not in ARCHIVE_TARGETS:
+        raise ValueError("Unsupported table")
+    return ARCHIVE_TARGETS[table]
+
+
+def archive_record(table: str, item_id: int, actor_id: int | None = None, actor_name: str = "Система") -> None:
+    target_type = _archive_target(table)
+    execute(
+        f"""
+        UPDATE {table}
+        SET is_archived = 1, archived_at = ?, archived_by_admin_id = ?, archived_by_name = ?
+        WHERE id = ?
+        """,
+        (now_iso(), actor_id, actor_name, item_id),
+    )
+    audit_log(actor_id, actor_name, f"{target_type}_archived", target_type, item_id)
+
+
+def unarchive_record(table: str, item_id: int, actor_id: int | None = None, actor_name: str = "Система") -> None:
+    target_type = _archive_target(table)
+    execute(
+        f"""
+        UPDATE {table}
+        SET is_archived = 0, archived_at = NULL, archived_by_admin_id = NULL, archived_by_name = NULL
+        WHERE id = ?
+        """,
+        (item_id,),
+    )
+    audit_log(actor_id, actor_name, f"{target_type}_unarchived", target_type, item_id)
+
+
+def delete_record_permanently(table: str, item_id: int, actor_id: int | None = None, actor_name: str = "Система") -> None:
+    target_type = _archive_target(table)
+    details = {
+        "application": "Отклик удалён полностью",
+        "question": "Вопрос удалён полностью",
+        "appeal": "Сообщение удалено полностью",
+    }[target_type]
+    audit_log(actor_id, actor_name, f"{target_type}_deleted_permanently", target_type, item_id, details)
+    execute(f"DELETE FROM {table} WHERE id = ?", (item_id,))
 
 
 def hash_password(password: str) -> str:
@@ -1265,6 +1365,8 @@ def take_application(application_id: int, admin: dict[str, Any]) -> tuple[bool, 
     app = get_application(application_id)
     if not app:
         return False, None
+    if int(app.get("is_archived") or 0) == 1:
+        return False, app
     if app.get("assigned_to_admin_id"):
         return False, app
     name = admin_display_name(admin)

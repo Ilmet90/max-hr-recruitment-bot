@@ -1,4 +1,4 @@
-<form method="post" action="/admin/{{ table }}/{{ item.id }}/status" class="status-form">
+<form method="post" action="/admin/{{ table }}/{{ item.id }}/status{% if return_query %}?{{ return_query }}{% endif %}" class="status-form">
   <select name="status">
     <option value="new" {% if item.status == "new" %}selected{% endif %}>Новый</option>
     <option value="in_work" {% if item.status == "in_work" %}selected{% endif %}>В работе</option>

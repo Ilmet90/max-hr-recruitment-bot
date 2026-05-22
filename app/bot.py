@@ -80,10 +80,10 @@ COMMENT_KEYBOARD = build_keyboard([["Пропустить"], ["Отмена"]])
 VACANCY_DETAIL_KEYBOARD = build_keyboard([["Откликнуться на эту вакансию"], ["Назад к вакансиям"], ["Главное меню"]])
 STAFF_BACK_KEYBOARD = build_keyboard([["Служебное меню"], ["Меню кандидата"]])
 STAFF_MENU_KEYBOARD = build_keyboard(
-    [["Новые отклики"], ["Мои отклики в работе"], ["Все отклики"], ["Вакансии", "Условия службы"], ["О программе"], ["Статистика"], ["Меню кандидата"]]
+    [["Новые отклики"], ["Мои отклики в работе"], ["Все отклики"], ["Архив откликов"], ["Вакансии", "Условия службы"], ["О программе"], ["Статистика"], ["Меню кандидата"]]
 )
 HEAD_STAFF_MENU_KEYBOARD = build_keyboard(
-    [["Новые отклики"], ["Мои отклики в работе"], ["Все отклики"], ["Назначить отклик"], ["Заявки на доступ"], ["Сотрудники отдела кадров"], ["Вакансии", "Условия службы"], ["О программе"], ["Статистика"], ["Меню кандидата"]]
+    [["Новые отклики"], ["Мои отклики в работе"], ["Все отклики"], ["Архив откликов"], ["Назначить отклик"], ["Заявки на доступ"], ["Сотрудники отдела кадров"], ["Вакансии", "Условия службы"], ["О программе"], ["Статистика"], ["Меню кандидата"]]
 )
 STAFF_ABOUT_KEYBOARD = build_keyboard([["Проверить обновления"], ["Обновить из GitHub"], ["Перезапустить MAX-бота"], ["Перезапустить web-админку"], ["Служебное меню"]])
 
@@ -966,6 +966,9 @@ def handle_take_application_command(api: MaxAPI, chat_id: str, user_id: str, tex
         notify_admins(api, f"Отклик #{application_id} принят в работу.\nОтветственный: {name}")
         return
     if app:
+        if int(app.get("is_archived") or 0) == 1:
+            send(api, chat_id, f"Отклик #{application_id} находится в архиве.", user_id=user_id, keyboard=MENU_ONLY_KEYBOARD)
+            return
         send(api, chat_id, f"Отклик #{application_id} уже в работе.\nОтветственный: {app.get('assigned_to_name') or 'не указан'}", user_id=user_id, keyboard=MENU_ONLY_KEYBOARD)
     else:
         send(api, chat_id, f"Отклик #{application_id} не найден.", user_id=user_id, keyboard=MENU_ONLY_KEYBOARD)
@@ -1048,6 +1051,22 @@ def handle_staff_text(api: MaxAPI, chat_id: str, user_id: str, state_id: str, co
             apps = [item for item in apps if item.get("assigned_to_admin_id") == admin["id"]]
         text = "\n\n".join(format_application_short(item) for item in apps[:10]) or "Откликов нет."
         send(api, chat_id, text, user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+        return True
+    if command == "архив откликов":
+        apps = db.list_applications(view="archive")
+        rows = [[f"Вернуть отклик #{item['id']}"] for item in apps[:10]]
+        rows.append(["Служебное меню"])
+        text = "\n\n".join(format_application_short(item) for item in apps[:10]) or "В архиве откликов нет."
+        send(api, chat_id, text, user_id=user_id, keyboard=build_keyboard(rows))
+        return True
+    if command.startswith("вернуть отклик #"):
+        try:
+            application_id = int(command.split("#", 1)[1].strip())
+        except (IndexError, ValueError):
+            send(api, chat_id, "Не удалось определить номер отклика.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+            return True
+        db.unarchive_record("applications", application_id, admin["id"], db.admin_display_name(admin))
+        send(api, chat_id, f"Отклик #{application_id} возвращён из архива.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
         return True
     if command == "назначить отклик":
         if has_head_rights(admin):

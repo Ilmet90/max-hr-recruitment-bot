@@ -8,7 +8,7 @@
   </div>
 </div>
 <table>
-  <thead><tr><th>ID</th><th>Порядок</th><th>Название</th><th>Зарплата</th><th>Статус</th><th>Действия</th></tr></thead>
+  <thead><tr><th>ID</th><th>Порядок</th><th>Название</th><th>Зарплата</th><th>Статус</th><th>Отклики</th><th>Действия</th></tr></thead>
   <tbody>
   {% for item in items %}
     <tr>
@@ -17,6 +17,13 @@
       <td>{{ item.title }}</td>
       <td>{{ item.salary }}</td>
       <td>{{ "активна" if item.is_active else "выключена" }}</td>
+      {% set counts = application_counts.get(item.id, {}) %}
+      <td>
+        <a href="/admin/applications?vacancy_id={{ item.id }}">Отклики: {{ counts.get("active", 0) }}</a>
+        {% if counts.get("archive", 0) %}
+          <div class="small"><a href="/admin/applications?vacancy_id={{ item.id }}&view=archive">Архив: {{ counts.get("archive", 0) }}</a></div>
+        {% endif %}
+      </td>
       <td class="actions">
         <a href="/admin/vacancies/{{ item.id }}/edit">Редактировать</a>
         <form method="post" action="/admin/vacancies/{{ item.id }}/toggle"><button>{{ "Выключить" if item.is_active else "Включить" }}</button></form>
