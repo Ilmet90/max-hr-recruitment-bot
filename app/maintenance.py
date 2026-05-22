@@ -132,7 +132,7 @@ def sudoers_setup_command() -> str:
 
 def sudoers_hint() -> str:
     return (
-        "Для обновления и перезапуска служб из web-интерфейса выполните на сервере один раз:\n\n"
+        "Для обновления и перезапуска служб из web-панели управления выполните на сервере один раз:\n\n"
         f"{sudoers_setup_command()}\n\n"
         "После этого вернитесь в раздел «О программе» и повторите действие."
     )
@@ -197,8 +197,8 @@ def restart_admin_service() -> tuple[bool, str]:
     try:
         subprocess.Popen(["nohup", "bash", "-c", command], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as exc:
-        return False, f"Не удалось запланировать перезапуск web-админки: {exc}. {sudoers_hint()}"
-    return True, "Web-админка будет перезапущена. Обновите страницу через несколько секунд."
+        return False, f"Не удалось запланировать перезапуск web-панели управления: {exc}. {sudoers_hint()}"
+    return True, "Web-панель управления будет перезапущена. Обновите страницу через несколько секунд."
 
 
 def restart_bot_service(deferred: bool = False) -> tuple[bool, str]:

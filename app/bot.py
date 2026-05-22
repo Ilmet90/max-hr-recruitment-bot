@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -8,7 +9,7 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
-from app import db, maintenance
+from app import db, maintenance, trudvsem_import
 from app.admin_bot import notify_admins, notify_approvers
 from app.max_api import MaxAPI, build_keyboard
 
@@ -33,6 +34,12 @@ APPLICATION_CONFIRM_PROMPT = (
 )
 
 user_states: dict[str, dict[str, Any]] = {}
+PUBLIC_BOT_COMMANDS = [{"name": "start", "description": "Открыть главное меню"}]
+STAFF_BOT_COMMANDS = [
+    {"name": "start", "description": "Открыть главное меню"},
+    {"name": "staff", "description": "Открыть служебное меню"},
+]
+_PUBLIC_COMMANDS_SYNCED = False
 
 MAIN_MENU_KEYBOARD = build_keyboard(
     [
@@ -85,7 +92,7 @@ STAFF_MENU_KEYBOARD = build_keyboard(
 HEAD_STAFF_MENU_KEYBOARD = build_keyboard(
     [["Новые отклики"], ["Мои отклики в работе"], ["Все отклики"], ["Архив откликов"], ["Назначить отклик"], ["Заявки на доступ"], ["Сотрудники отдела кадров"], ["Вакансии", "Условия службы"], ["О программе"], ["Статистика"], ["Меню кандидата"]]
 )
-STAFF_ABOUT_KEYBOARD = build_keyboard([["Проверить обновления"], ["Обновить из GitHub"], ["Перезапустить MAX-бота"], ["Перезапустить web-админку"], ["Служебное меню"]])
+STAFF_ABOUT_KEYBOARD = build_keyboard([["Проверить обновления"], ["Обновить из GitHub"], ["Перезапустить MAX-бота"], ["Перезапустить web-панель управления"], ["Служебное меню"]])
 
 
 def cancel_keyboard() -> dict[str, Any]:
@@ -98,6 +105,22 @@ def get_token() -> str:
 
 def token_is_valid(token: str) -> bool:
     return bool(token) and token not in PLACEHOLDER_TOKENS
+
+
+def ensure_public_bot_commands(api: MaxAPI) -> None:
+    global _PUBLIC_COMMANDS_SYNCED
+    if _PUBLIC_COMMANDS_SYNCED:
+        return
+    if api.set_bot_commands(PUBLIC_BOT_COMMANDS):
+        _PUBLIC_COMMANDS_SYNCED = True
+
+
+def try_set_staff_bot_commands(api: MaxAPI, chat_id: str | None = None, user_id: str | None = None) -> None:
+    api.set_bot_commands(STAFF_BOT_COMMANDS, chat_id=chat_id, user_id=user_id)
+
+
+def try_clear_staff_bot_commands(api: MaxAPI, chat_id: str | None = None, user_id: str | None = None) -> None:
+    api.set_bot_commands(PUBLIC_BOT_COMMANDS, chat_id=chat_id, user_id=user_id)
 
 
 def main_menu() -> str:
@@ -301,6 +324,7 @@ def vacancy_buttons(vacancies: list[dict[str, Any]]) -> dict[str, Any] | None:
 
 
 def show_main_menu(api: MaxAPI, chat_id: str, user_id: str | None = None) -> None:
+    ensure_public_bot_commands(api)
     send(api, chat_id, main_menu(), user_id=user_id, keyboard=MAIN_MENU_KEYBOARD)
 
 
@@ -325,10 +349,11 @@ def has_head_rights(admin: dict[str, Any] | None) -> bool:
 
 
 def staff_menu_text(admin: dict[str, Any]) -> str:
-    return f"Внутренний раздел отдела кадров\n\nРоль: {db.role_label(admin.get('role'))}\n\nВыберите действие.\nДля возврата в это меню используйте /staff."
+    return f"Служебный раздел отдела кадров\n\nРоль: {db.role_label(admin.get('role'))}\n\nВыберите действие.\nДля возврата в это меню используйте /staff."
 
 
 def show_staff_menu(api: MaxAPI, chat_id: str, user_id: str, admin: dict[str, Any]) -> None:
+    try_set_staff_bot_commands(api, chat_id=chat_id, user_id=user_id)
     keyboard = HEAD_STAFF_MENU_KEYBOARD if has_head_rights(admin) else STAFF_MENU_KEYBOARD
     send(api, chat_id, staff_menu_text(admin), user_id=user_id, keyboard=keyboard)
 
@@ -439,20 +464,20 @@ def handle_staff_vacancy_state(api: MaxAPI, chat_id: str, user_id: str, state_id
                 send(
                     api,
                     chat_id,
-                    "Импорт с портала «Работа России» не настроен. Укажите ИНН работодателя или код работодателя в web-админке: Вакансии → Импорт с Работа России.",
+                    "Импорт с портала «Работа России» не настроен. Укажите ИНН работодателя или код работодателя в web-панели управления: Вакансии → Импорт с Работа России.",
                     user_id=user_id,
                     keyboard=STAFF_BACK_KEYBOARD,
                 )
                 return True
             if str(settings.get("trudvsem_enabled") or "0") != "1":
-                send(api, chat_id, "Импорт с портала «Работа России» отключён в настройках web-админки.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+                send(api, chat_id, "Импорт с портала «Работа России» отключён в настройках web-панели управления.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
                 return True
             result = trudvsem_import.import_trudvsem_vacancies(actor_id=admin["id"], actor_name=db.admin_display_name(admin))
             if not result.get("ok"):
                 send(
                     api,
                     chat_id,
-                    "Не удалось получить вакансии с портала «Работа России». Попробуйте позже или выполните импорт через web-админку.",
+                    "Не удалось получить вакансии с портала «Работа России». Попробуйте позже или выполните импорт через web-панель управления.",
                     user_id=user_id,
                     keyboard=STAFF_BACK_KEYBOARD,
                 )
@@ -516,7 +541,7 @@ def require_staff_message(api: MaxAPI, chat_id: str, user_id: str) -> dict[str, 
     if admin and admin.get("role") == "pending":
         send(api, chat_id, "Ваша заявка на доступ ожидает подтверждения.", user_id=user_id, keyboard=MENU_ONLY_KEYBOARD)
     elif admin and admin.get("role") == "disabled":
-        send(api, chat_id, "Доступ к внутреннему разделу отключён.", user_id=user_id, keyboard=MENU_ONLY_KEYBOARD)
+        send(api, chat_id, "Доступ к служебному разделу отключён.", user_id=user_id, keyboard=MENU_ONLY_KEYBOARD)
     else:
         send(api, chat_id, "Для запроса доступа отправьте команду /admin <код>.", user_id=user_id, keyboard=MENU_ONLY_KEYBOARD)
     return None
@@ -909,11 +934,11 @@ def handle_admin_command(api: MaxAPI, chat_id: str, user_id: str, display_name: 
         send(
             api,
             chat_id,
-            "Ваша заявка на доступ к внутреннему разделу бота принята.\n\nДоступ будет открыт после подтверждения администратором или начальником отдела кадров.",
+            "Ваша заявка на доступ к служебному разделу бота принята.\n\nДоступ будет открыт после подтверждения главной учётной записью или начальником отдела кадров.",
             user_id=user_id,
             keyboard=MENU_ONLY_KEYBOARD,
         )
-        notify_approvers(api, f"Новая заявка на доступ к внутреннему разделу\n\nПользователь: {display_name or user_id}\nMAX ID: {user_id}\nДата: {db.now_iso()}\n\nДля одобрения отправьте:\nОдобрить как сотрудника #{admin['id']}\nили\nОдобрить как начальника #{admin['id']}", int(admin["id"]))
+        notify_approvers(api, f"Новая заявка на доступ к служебному разделу\n\nПользователь: {display_name or user_id}\nMAX ID: {user_id}\nДата: {db.now_iso()}\n\nДля одобрения отправьте:\nОдобрить как сотрудника #{admin['id']}\nили\nОдобрить как начальника #{admin['id']}", int(admin["id"]))
     else:
         send(api, chat_id, "Неверный код администратора.", user_id=user_id, keyboard=MENU_ONLY_KEYBOARD)
 
@@ -936,10 +961,11 @@ def handle_approve_command(api: MaxAPI, chat_id: str, user_id: str, text: str, a
             return
         send(api, chat_id, "Пользователь одобрен.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
         if admin.get("chat_id") or admin.get("max_user_id"):
+            try_set_staff_bot_commands(api, chat_id=str(admin.get("chat_id") or ""), user_id=str(admin.get("max_user_id") or ""))
             send(
                 api,
                 str(admin.get("chat_id") or ""),
-                f"Ваш доступ подтверждён.\n\nРоль: {db.role_label(admin.get('role'))}\nЛогин для web-админки: {admin['web_login']}\nВременный пароль: {password}\n\nПосле входа рекомендуется сменить пароль.",
+                f"Ваш доступ подтверждён.\n\nРоль: {db.role_label(admin.get('role'))}\nЛогин для web-панели управления: {admin['web_login']}\nВременный пароль: {password}\n\nПосле входа рекомендуется сменить пароль.",
                 user_id=str(admin.get("max_user_id") or ""),
                 keyboard=MENU_ONLY_KEYBOARD,
             )
@@ -947,6 +973,7 @@ def handle_approve_command(api: MaxAPI, chat_id: str, user_id: str, text: str, a
         admin = db.reject_admin(admin_id, actor.get("id"), db.admin_display_name(actor))
         send(api, chat_id, "Заявка отклонена.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
         if admin and (admin.get("chat_id") or admin.get("max_user_id")):
+            try_clear_staff_bot_commands(api, chat_id=str(admin.get("chat_id") or ""), user_id=str(admin.get("max_user_id") or ""))
             send(api, str(admin.get("chat_id") or ""), "Ваша заявка на доступ отклонена.", user_id=str(admin.get("max_user_id") or ""), keyboard=MENU_ONLY_KEYBOARD)
 
 
@@ -976,6 +1003,142 @@ def handle_take_application_command(api: MaxAPI, chat_id: str, user_id: str, tex
 
 def format_application_short(app: dict[str, Any]) -> str:
     return f"#{app['id']} {app.get('vacancy_title') or ''}\n{app.get('full_name') or ''}, {app.get('phone') or ''}\nСтатус: {db.application_status_label(app.get('status'))}\nОтветственный: {app.get('assigned_to_name') or 'нет'}"
+
+
+def format_application_assignment_line(app: dict[str, Any]) -> str:
+    responsible = app.get("assigned_to_name") or "не назначен"
+    return (
+        f"#{app['id']} — {app.get('full_name') or 'кандидат не указан'}, "
+        f"вакансия: {app.get('vacancy_title') or 'не указана'}, "
+        f"статус: {db.application_status_label(app.get('status'))}, "
+        f"ответственный: {responsible}"
+    )
+
+
+def assignable_applications(limit: int = 20) -> list[dict[str, Any]]:
+    apps = [
+        item
+        for item in db.list_applications(view="active")
+        if item.get("status") in {"new", "in_work"}
+    ]
+    apps.sort(key=lambda item: (1 if item.get("assigned_to_admin_id") else 0, -int(item.get("id") or 0)))
+    return apps[:limit]
+
+
+def show_assignable_applications(api: MaxAPI, chat_id: str, user_id: str, state_id: str) -> None:
+    apps = assignable_applications()
+    if not apps:
+        send(api, chat_id, "Нет откликов для назначения.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+        return
+    user_states[state_id] = {"scenario": "staff_assign_application_list"}
+    rows = [[f"Назначить #{item['id']}"] for item in apps]
+    rows.append(["Служебное меню"])
+    text = "Выберите отклик для назначения ответственного:\n\n" + "\n".join(format_application_assignment_line(item) for item in apps)
+    send(api, chat_id, text, user_id=user_id, keyboard=build_keyboard(rows))
+
+
+def show_assignment_staff(api: MaxAPI, chat_id: str, user_id: str, state_id: str, application_id: int) -> None:
+    app = db.get_application(application_id)
+    if not app or int(app.get("is_archived") or 0) == 1:
+        send(api, chat_id, "Отклик не найден или находится в архиве.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+        return
+    staff = [
+        item
+        for item in db.active_staff()
+        if int(item.get("approved") or 0) == 1
+        and int(item.get("is_active") or 0) == 1
+        and int(item.get("can_use_bot_admin") or 0) == 1
+    ]
+    if not staff:
+        send(api, chat_id, "Нет сотрудников, доступных для назначения.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+        return
+    user_states[state_id] = {"scenario": "staff_assign_application_staff", "application_id": application_id}
+    rows = [[f"Назначить сотруднику #{item['id']}: {db.admin_display_name(item)}"] for item in staff[:20]]
+    rows.extend([["Отмена"], ["Служебное меню"]])
+    text = f"Отклик для назначения:\n\n{format_application_assignment_line(app)}\n\nВыберите ответственного сотрудника."
+    send(api, chat_id, text, user_id=user_id, keyboard=build_keyboard(rows))
+
+
+def parse_hash_id(text: str) -> int | None:
+    match = re.search(r"#\s*(\d+)", text)
+    return int(match.group(1)) if match else None
+
+
+def notify_assigned_application(api: MaxAPI, app: dict[str, Any], assignee: dict[str, Any]) -> None:
+    if not (assignee.get("chat_id") or assignee.get("max_user_id")):
+        return
+    try:
+        send(
+            api,
+            str(assignee.get("chat_id") or ""),
+            (
+                f"Вам назначен отклик #{app.get('id')}.\n\n"
+                f"Кандидат: {app.get('full_name') or 'не указан'}\n"
+                f"Вакансия: {app.get('vacancy_title') or 'не указана'}"
+            ),
+            user_id=str(assignee.get("max_user_id") or ""),
+            keyboard=STAFF_BACK_KEYBOARD,
+        )
+    except Exception as exc:
+        print(f"Не удалось отправить уведомление о назначении отклика: {exc}")
+
+
+def assign_application_via_bot(
+    api: MaxAPI,
+    chat_id: str,
+    user_id: str,
+    application_id: int,
+    assignee_id: int,
+    actor: dict[str, Any],
+) -> None:
+    if not has_head_rights(actor):
+        send(api, chat_id, "Недостаточно прав для назначения ответственного.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+        return
+    ok, message, app, assignee = db.assign_application_to_admin(application_id, assignee_id, actor)
+    if not ok:
+        send(api, chat_id, message, user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+        return
+    if app and assignee:
+        notify_assigned_application(api, app, assignee)
+        send(
+            api,
+            chat_id,
+            f"Отклик #{application_id} назначен сотруднику {db.admin_display_name(assignee)}.",
+            user_id=user_id,
+            keyboard=STAFF_BACK_KEYBOARD,
+        )
+
+
+def handle_staff_assignment_state(
+    api: MaxAPI,
+    chat_id: str,
+    user_id: str,
+    state_id: str,
+    command: str,
+    text: str,
+    state: dict[str, Any],
+    admin: dict[str, Any],
+) -> bool:
+    scenario = state.get("scenario")
+    if scenario == "staff_assign_application_list":
+        if command.startswith("назначить #") or command.startswith("назначить отклик #"):
+            application_id = parse_hash_id(text)
+            if application_id:
+                show_assignment_staff(api, chat_id, user_id, state_id, application_id)
+            else:
+                send(api, chat_id, "Не удалось определить номер отклика.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+            return True
+    if scenario == "staff_assign_application_staff":
+        if command.startswith("назначить сотруднику"):
+            assignee_id = parse_hash_id(text)
+            if assignee_id:
+                application_id = int(state.get("application_id") or 0)
+                user_states.pop(state_id, None)
+                assign_application_via_bot(api, chat_id, user_id, application_id, assignee_id, admin)
+            else:
+                send(api, chat_id, "Не удалось определить сотрудника.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+            return True
+    return False
 
 
 def format_maintenance_info(info: dict[str, Any], include_remote: bool = True) -> str:
@@ -1041,7 +1204,23 @@ def handle_staff_text(api: MaxAPI, chat_id: str, user_id: str, state_id: str, co
     if not has_staff_access(admin):
         return False
     state = user_states.get(state_id)
+    if state and handle_staff_assignment_state(api, chat_id, user_id, state_id, command, command, state, admin):
+        return True
     if state and handle_staff_maintenance_state(api, chat_id, user_id, state_id, command, state, admin):
+        return True
+    direct_assign = re.fullmatch(r"назначить\s+#?(\d+)\s+сотруднику\s+#?(\d+)", command)
+    if direct_assign:
+        assign_application_via_bot(api, chat_id, user_id, int(direct_assign.group(1)), int(direct_assign.group(2)), admin)
+        return True
+    if command.startswith("назначить отклик #") or command.startswith("назначить #"):
+        if not has_head_rights(admin):
+            send(api, chat_id, "Назначение ответственного доступно начальнику кадрового подразделения.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+            return True
+        application_id = parse_hash_id(command)
+        if application_id:
+            show_assignment_staff(api, chat_id, user_id, state_id, application_id)
+        else:
+            send(api, chat_id, "Не удалось определить номер отклика.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
         return True
     if command in {"новые отклики", "мои отклики в работе", "все отклики"}:
         apps = db.list_applications()
@@ -1070,9 +1249,9 @@ def handle_staff_text(api: MaxAPI, chat_id: str, user_id: str, state_id: str, co
         return True
     if command == "назначить отклик":
         if has_head_rights(admin):
-            send(api, chat_id, "Назначение откликов сотрудникам выполняется через web-админку.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+            show_assignable_applications(api, chat_id, user_id, state_id)
         else:
-            send(api, chat_id, "Доступ запрещён.", user_id=user_id, keyboard=MENU_ONLY_KEYBOARD)
+            send(api, chat_id, "Назначение ответственного доступно начальнику кадрового подразделения.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
         return True
     if command == "заявки на доступ":
         if not has_head_rights(admin):
@@ -1130,7 +1309,7 @@ def handle_staff_text(api: MaxAPI, chat_id: str, user_id: str, state_id: str, co
         if not ok:
             send(api, chat_id, message, user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
         return True
-    if command == "перезапустить web-админку":
+    if command == "перезапустить web-панель управления":
         if not has_head_rights(admin):
             send(api, chat_id, "Доступ запрещён.", user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
             return True

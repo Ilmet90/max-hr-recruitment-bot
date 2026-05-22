@@ -1401,6 +1401,49 @@ def assign_application(application_id: int, assignee_id: int, actor: dict[str, A
     audit_log(actor.get("id") if actor else None, actor_name, "application_assigned", "application", application_id, name)
 
 
+def assign_application_to_admin(
+    application_id: int,
+    admin_id: int,
+    assigned_by_admin: dict[str, Any] | None,
+) -> tuple[bool, str, dict[str, Any] | None, dict[str, Any] | None]:
+    app = get_application(application_id)
+    if not app:
+        return False, "Отклик не найден.", None, None
+    if int(app.get("is_archived") or 0) == 1:
+        return False, "Отклик находится в архиве.", app, None
+    assignee = get_admin(admin_id)
+    if not assignee:
+        return False, "Сотрудник не найден.", app, None
+    if not (
+        int(assignee.get("approved") or 0) == 1
+        and int(assignee.get("is_active") or 0) == 1
+        and assignee.get("role") in {"hr_staff", "hr_head"}
+        and int(assignee.get("can_use_bot_admin") or 0) == 1
+    ):
+        return False, "Этого сотрудника нельзя назначить ответственным.", app, assignee
+    actor_name = admin_display_name(assigned_by_admin)
+    assignee_name = admin_display_name(assignee)
+    ts = now_iso()
+    execute(
+        """
+        UPDATE applications
+        SET assigned_to_admin_id = ?, assigned_to_name = ?, assigned_at = ?,
+            status = CASE WHEN status = 'new' THEN 'in_work' ELSE status END
+        WHERE id = ?
+        """,
+        (admin_id, assignee_name, ts, application_id),
+    )
+    audit_log(
+        assigned_by_admin.get("id") if assigned_by_admin else None,
+        actor_name,
+        "application_assigned",
+        "application",
+        application_id,
+        f"Ответственный: {assignee_name}",
+    )
+    return True, "Отклик назначен.", get_application(application_id), assignee
+
+
 def release_application(application_id: int, actor: dict[str, Any] | None, actor_name: str = "Система") -> None:
     execute(
         """

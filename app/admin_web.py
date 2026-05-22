@@ -1267,7 +1267,7 @@ def admin_approve(request: Request, admin_id: int, role: str = Form("hr_staff"))
     if admin:
         send_max_to_admin(
             admin,
-            f"Ваш доступ подтверждён.\n\nРоль: {db.role_label(admin.get('role'))}\nЛогин для web-админки: {admin['web_login']}\nВременный пароль: {password}\n\nПосле входа рекомендуется сменить пароль.",
+            f"Ваш доступ подтверждён.\n\nРоль: {db.role_label(admin.get('role'))}\nЛогин для web-панели управления: {admin['web_login']}\nВременный пароль: {password}\n\nПосле входа рекомендуется сменить пароль.",
         )
     return redirect("/admin/admins")
 
@@ -1312,7 +1312,7 @@ def admin_password_reset(request: Request, admin_id: int) -> HTMLResponse:
     if admin:
         sent = send_max_to_admin(
             admin,
-            f"Ваш пароль для web-админки был сброшен.\n\nЛогин: {admin.get('web_login')}\nВременный пароль: {password}\n\nПосле входа рекомендуется сменить пароль в разделе «Мой профиль».",
+            f"Ваш пароль для web-панели управления был сброшен.\n\nЛогин: {admin.get('web_login')}\nВременный пароль: {password}\n\nПосле входа рекомендуется сменить пароль в разделе «Мой профиль».",
         )
     return render(request, "password_reset_result.html", {"item": admin, "temp_password": "" if sent else password, "sent": sent})
 

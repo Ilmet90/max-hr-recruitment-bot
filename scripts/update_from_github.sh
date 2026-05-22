@@ -1,74 +1,71 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_DIR_DEFAULT="/opt/max-hr-recruitment-bot"
-REPO_URL_DEFAULT="https://github.com/Ilmet90/max-hr-recruitment-bot.git"
-BRANCH_DEFAULT="main"
-ADMIN_SERVICE_DEFAULT="max-hr-admin.service"
-BOT_SERVICE_DEFAULT="max-hr-bot.service"
-TMP_DIR="/tmp/max-hr-recruitment-bot-update"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+TMP_DIR="${TMP_DIR:-/tmp/max-hr-recruitment-bot-update}"
+REPO_URL_FALLBACK="https://github.com/Ilmet90/max-hr-recruitment-bot.git"
+BRANCH_FALLBACK="main"
+APP_DIR_FALLBACK="$SCRIPT_APP_DIR"
+ADMIN_SERVICE_FALLBACK="max-hr-admin.service"
+BOT_SERVICE_FALLBACK="max-hr-bot.service"
 SYSTEMCTL="$(command -v systemctl || true)"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 UPDATE_STARTED=0
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-if [[ "$APP_DIR" != "$APP_DIR_DEFAULT" && -d "$APP_DIR_DEFAULT" ]]; then
-  APP_DIR="$APP_DIR_DEFAULT"
-fi
-
-REPO_URL="$REPO_URL_DEFAULT"
-BRANCH="$BRANCH_DEFAULT"
-ADMIN_SERVICE="$ADMIN_SERVICE_DEFAULT"
-BOT_SERVICE="$BOT_SERVICE_DEFAULT"
-LOG_FILE="$APP_DIR/logs/update.log"
-
-mkdir -p "$APP_DIR/logs" "$APP_DIR/backups"
-exec > >(tee -a "$LOG_FILE") 2>&1
-
-echo "[$(date '+%F %T')] Начато обновление из GitHub"
 
 if [[ -z "$SYSTEMCTL" ]]; then
   echo "systemctl не найден."
   exit 20
 fi
 
-cd "$APP_DIR"
+read_setting() {
+  local base_dir="$1"
+  local key="$2"
+  local default="$3"
+  if [[ ! -x "$base_dir/.venv/bin/python" ]]; then
+    printf '%s\n' "$default"
+    return 0
+  fi
+  (
+    cd "$base_dir"
+    "$base_dir/.venv/bin/python" - "$key" "$default" <<'PYCODE'
+import sys
+from app.db import init_db, get_setting
 
-if SETTINGS_OUTPUT="$("$APP_DIR/.venv/bin/python" - <<'PY' 2>/dev/null
-from app.db import (
-    init_db,
-    get_admin_service_name,
-    get_bot_service_name,
-    get_github_branch,
-    get_github_repo_url,
-    get_install_path,
-)
+key = sys.argv[1]
+default = sys.argv[2]
+try:
+    init_db()
+    print((get_setting(key, default) or default).strip() or default)
+except Exception:
+    print(default)
+PYCODE
+  ) 2>/dev/null
+}
 
-init_db()
-print(get_install_path())
-print(get_github_repo_url())
-print(get_github_branch())
-print(get_admin_service_name())
-print(get_bot_service_name())
-PY
-)"; then
-  APP_DIR_FROM_DB="$(printf '%s\n' "$SETTINGS_OUTPUT" | sed -n '1p')"
-  REPO_URL="$(printf '%s\n' "$SETTINGS_OUTPUT" | sed -n '2p')"
-  BRANCH="$(printf '%s\n' "$SETTINGS_OUTPUT" | sed -n '3p')"
-  ADMIN_SERVICE="$(printf '%s\n' "$SETTINGS_OUTPUT" | sed -n '4p')"
-  BOT_SERVICE="$(printf '%s\n' "$SETTINGS_OUTPUT" | sed -n '5p')"
-  APP_DIR="${APP_DIR_FROM_DB:-$APP_DIR}"
-  REPO_URL="${REPO_URL:-$REPO_URL_DEFAULT}"
-  BRANCH="${BRANCH:-$BRANCH_DEFAULT}"
-  ADMIN_SERVICE="${ADMIN_SERVICE:-$ADMIN_SERVICE_DEFAULT}"
-  BOT_SERVICE="${BOT_SERVICE:-$BOT_SERVICE_DEFAULT}"
-else
-  echo "Не удалось прочитать настройки обслуживания из базы, используются значения по умолчанию"
+APP_DIR="${APP_DIR:-}"
+if [[ -z "$APP_DIR" ]]; then
+  APP_DIR="$(read_setting "$SCRIPT_APP_DIR" "install_path" "$APP_DIR_FALLBACK")"
 fi
+APP_DIR="${APP_DIR:-$APP_DIR_FALLBACK}"
 
-cd "$APP_DIR"
+REPO_URL="${REPO_URL:-$(read_setting "$APP_DIR" "github_repo_url" "$REPO_URL_FALLBACK") }"
+REPO_URL="${REPO_URL% }"
+BRANCH="${BRANCH:-$(read_setting "$APP_DIR" "github_branch" "$BRANCH_FALLBACK") }"
+BRANCH="${BRANCH% }"
+ADMIN_SERVICE="${ADMIN_SERVICE:-$(read_setting "$APP_DIR" "admin_service_name" "$ADMIN_SERVICE_FALLBACK") }"
+ADMIN_SERVICE="${ADMIN_SERVICE% }"
+BOT_SERVICE="${BOT_SERVICE:-$(read_setting "$APP_DIR" "bot_service_name" "$BOT_SERVICE_FALLBACK") }"
+BOT_SERVICE="${BOT_SERVICE% }"
+
+LOG_FILE="$APP_DIR/logs/update.log"
 mkdir -p "$APP_DIR/logs" "$APP_DIR/backups"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+echo "[$(date '+%F %T')] Начато обновление из GitHub"
+echo "Каталог проекта: $APP_DIR"
+echo "Служба web-панели управления: $ADMIN_SERVICE"
+echo "Служба MAX-бота: $BOT_SERVICE"
 
 sudoers_hint() {
   echo "Управление службами не настроено. Выполните один раз:"
@@ -77,13 +74,14 @@ sudoers_hint() {
 
 check_sudoers_for_service() {
   local service="$1"
+  local allow_not_found="${2:-0}"
   local output=""
   local code=0
   set +e
   output="$(sudo -n "$SYSTEMCTL" status "$service" 2>&1 >/dev/null)"
   code=$?
   set -e
-  if [[ "$code" -eq 0 || "$code" -eq 3 || "$code" -eq 4 ]]; then
+  if [[ "$code" -eq 0 || "$code" -eq 3 || ( "$allow_not_found" -eq 1 && "$code" -eq 4 ) ]]; then
     return 0
   fi
   sudoers_hint
@@ -116,8 +114,10 @@ restore_services_on_error() {
 trap restore_services_on_error ERR
 
 echo "Проверка прав sudoers"
-check_sudoers_for_service "$ADMIN_SERVICE" || exit 20
-check_sudoers_for_service "$BOT_SERVICE" || exit 20
+check_sudoers_for_service "$ADMIN_SERVICE" 0 || exit 20
+check_sudoers_for_service "$BOT_SERVICE" 1 || exit 20
+
+cd "$APP_DIR"
 
 echo "Резервное копирование"
 if [[ -f "$APP_DIR/data/bot.sqlite3" ]]; then
@@ -155,23 +155,23 @@ echo "Миграции базы"
 python -c "from app.db import init_db; init_db(); print('db ok')"
 
 REMOTE_COMMIT="$(git -C "$TMP_DIR" rev-parse HEAD)"
-python - "$REMOTE_COMMIT" <<'PY'
+python - "$REMOTE_COMMIT" <<'PYCODE'
 import sys
 from app.db import init_db, set_installed_commit
 
 init_db()
 set_installed_commit(sys.argv[1])
 print("installed_commit saved")
-PY
+PYCODE
 
 echo "Запуск службы MAX-бота"
 if bot_token_configured; then
-  sudo -n "$SYSTEMCTL" start "$BOT_SERVICE" || echo "MAX_BOT_TOKEN не задан или служба бота не запущена — запуск бота пропущен."
+  sudo -n "$SYSTEMCTL" restart "$BOT_SERVICE" || echo "MAX_BOT_TOKEN не задан или служба бота не запущена — запуск бота пропущен."
 else
   echo "MAX_BOT_TOKEN не задан или служба бота не запущена — запуск бота пропущен."
 fi
 
-echo "Плановый перезапуск web-админки"
+echo "Плановый перезапуск web-панели управления"
 (
   sleep 2
   sudo -n "$SYSTEMCTL" restart "$ADMIN_SERVICE"
@@ -179,4 +179,4 @@ echo "Плановый перезапуск web-админки"
 
 rm -rf "$TMP_DIR"
 trap - ERR
-echo "[$(date '+%F %T')] Обновление завершено. Web-админка будет перезапущена в самом конце."
+echo "[$(date '+%F %T')] Обновление завершено. Web-панель управления будет перезапущена в самом конце."

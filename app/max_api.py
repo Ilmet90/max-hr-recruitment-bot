@@ -29,6 +29,17 @@ def build_keyboard(buttons: list[list[str]] | list[str]) -> dict[str, Any]:
     }
 
 
+def normalize_bot_commands(commands: list[dict[str, str]]) -> list[dict[str, str]]:
+    normalized: list[dict[str, str]] = []
+    for command in commands:
+        name = str(command.get("name") or "").strip().lstrip("/")
+        description = str(command.get("description") or "").strip()
+        if not name:
+            continue
+        normalized.append({"name": name, "description": description})
+    return normalized
+
+
 class MaxAPI:
     def __init__(self, token: str, base_url: str | None = None, timeout: int = 45) -> None:
         self.token = token
@@ -99,6 +110,26 @@ class MaxAPI:
                 print("MAX API отклонил клавиатуру, повторяю отправку сообщения без кнопок.")
                 return self._send_message_payload(params, {"text": text})
             raise
+
+    def set_bot_commands(
+        self,
+        commands: list[dict[str, str]],
+        chat_id: str | None = None,
+        user_id: str | None = None,
+    ) -> bool:
+        if chat_id or user_id:
+            print("MAX bot commands: команды для отдельного пользователя или чата текущим API не подтверждены.")
+            return False
+        payload = {"commands": normalize_bot_commands(commands)}
+        try:
+            self._request("PATCH", "/me", json=payload)
+            return True
+        except Exception as exc:
+            print(f"MAX bot commands: не удалось обновить список команд: {exc}")
+            return False
+
+    def clear_bot_commands(self, chat_id: str | None = None, user_id: str | None = None) -> bool:
+        return self.set_bot_commands([], chat_id=chat_id, user_id=user_id)
 
     def upload_image(self, path: str) -> dict[str, Any]:
         image_path = Path(path)

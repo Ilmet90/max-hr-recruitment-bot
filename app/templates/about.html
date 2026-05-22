@@ -24,7 +24,7 @@
   <section class="panel">
     <h2>Обслуживание</h2>
     <p class="small">
-      Для обновления и перезапуска служб из web-интерфейса выполните на сервере один раз:
+      Для обновления и перезапуска служб из web-панели управления выполните на сервере один раз:
       <code>{{ maintenance_sudoers_command }}</code>.
       Если права не настроены, обновление не начнётся и службы не будут остановлены.
     </p>
@@ -35,8 +35,8 @@
       <form method="post" action="/admin/about/update" onsubmit="return confirm('Будет выполнено обновление кода из GitHub. База данных, .env, логи и загруженные фотографии будут сохранены. Продолжить?')">
         <button>Обновить из GitHub</button>
       </form>
-      <form method="post" action="/admin/about/restart-admin" onsubmit="return confirm('Web-админка будет перезапущена. Продолжить?')">
-        <button>Перезапустить web-админку</button>
+      <form method="post" action="/admin/about/restart-admin" onsubmit="return confirm('Web-панель управления будет перезапущена. Продолжить?')">
+        <button>Перезапустить web-панель управления</button>
       </form>
       <form method="post" action="/admin/about/restart-bot" onsubmit="return confirm('MAX-бот будет перезапущен. Продолжить?')">
         <button>Перезапустить MAX-бота</button>
