@@ -11,6 +11,14 @@
   "common.active": "Активные",
   "common.archive": "Архив",
   "common.all": "Все",
+  "language.ru": "Русский",
+  "language.en": "English",
+  "language.switch": "Язык интерфейса",
+  "language.interface_language": "Этот выбор сохраняется только в текущем браузере.",
+  "language.default_web_language": "Язык web-панели по умолчанию",
+  "language.default_bot_language": "Язык публичного бота по умолчанию",
+  "language.web_language_help": "Влияет на интерфейс панели управления, если пользователь не выбрал язык вручную.",
+  "language.bot_language_help": "Подготовлено для будущей локализации сообщений и кнопок бота.",
   "nav.dashboard": "Панель управления",
   "nav.vacancies": "Вакансии",
   "nav.applications": "Отклики",
@@ -42,6 +50,12 @@
   "login.password": "Пароль",
   "login.sign_in": "Войти",
   "login.invalid_credentials": "Неверный логин или пароль.",
+  "login.language": "Язык",
   "about.title": "О программе",
-  "profile.temporary_password_warning": "Вы используете временный пароль. Рекомендуется сменить пароль в разделе «Мой профиль»."
+  "profile.interface_language": "Язык интерфейса",
+  "profile.temporary_password_warning": "Вы используете временный пароль. Рекомендуется сменить пароль в разделе «Мой профиль».",
+  "organization.web_interface_language": "Язык web-панели по умолчанию",
+  "organization.bot_public_language": "Язык публичного бота по умолчанию",
+  "organization.web_interface_language_help": "Влияет на интерфейс панели управления, если пользователь не выбрал язык вручную.",
+  "organization.bot_public_language_help": "Подготовлено для будущей локализации сообщений и кнопок бота."
 }

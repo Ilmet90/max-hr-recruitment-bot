@@ -10,7 +10,7 @@ import secrets
 import time
 import traceback
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
@@ -35,8 +35,10 @@ UPLOAD_DIR = STATIC_DIR / "uploads" / "service"
 
 ALLOWED_PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 SESSION_COOKIE = "max_hr_admin"
+WEB_UI_LANG_COOKIE = "web_ui_lang"
 BOOT_SESSION_ID = secrets.token_urlsafe(16)
 SESSION_TTL_SECONDS = 8 * 60 * 60
+LANG_COOKIE_MAX_AGE = 365 * 24 * 60 * 60
 
 app = FastAPI(title=db.DEFAULT_ORG_SETTINGS["web_admin_title"])
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -101,10 +103,20 @@ def expired_session_cookie() -> str:
     return f"{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=lax"
 
 
+def resolve_ui_lang(request: Request, org_settings: dict[str, str]) -> tuple[str, bool]:
+    query_lang = request.query_params.get("lang", "").strip().lower()
+    if query_lang in i18n.SUPPORTED_LOCALES:
+        return query_lang, True
+    cookie_lang = request.cookies.get(WEB_UI_LANG_COOKIE, "").strip().lower()
+    if cookie_lang in i18n.SUPPORTED_LOCALES:
+        return cookie_lang, False
+    return i18n.get_locale(org_settings), False
+
+
 def render(request: Request, template: str, context: dict | None = None) -> HTMLResponse:
     current = current_admin(request)
     org_settings = db.get_org_settings()
-    ui_lang = i18n.get_locale(org_settings)
+    ui_lang, should_set_lang_cookie = resolve_ui_lang(request, org_settings)
 
     def template_t(key: str, default: str | None = None) -> str:
         return i18n.t(key, default=default, locale=ui_lang)
@@ -128,11 +140,14 @@ def render(request: Request, template: str, context: dict | None = None) -> HTML
     }
     if context:
         data.update(context)
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request=request,
         name=template,
         context=data,
     )
+    if should_set_lang_cookie:
+        response.set_cookie(WEB_UI_LANG_COOKIE, ui_lang, max_age=LANG_COOKIE_MAX_AGE, samesite="lax")
+    return response
 
 
 def redirect(path: str) -> RedirectResponse:
@@ -143,6 +158,18 @@ def redirect_with_notice(path: str, message: str = "", error: str = "") -> Redir
     params = {key: value for key, value in {"message": message, "error": error}.items() if value}
     suffix = f"?{urlencode(params)}" if params else ""
     return redirect(f"{path}{suffix}")
+
+
+def safe_admin_return_url(value: str | None, default: str = "/admin/login") -> str:
+    if not value:
+        return default
+    parsed = urlparse(value)
+    target = parsed.path or default
+    if parsed.query:
+        target = f"{target}?{parsed.query}"
+    if not target.startswith("/admin"):
+        return default
+    return target
 
 
 def form_checkbox(value: str | None) -> int:
@@ -380,6 +407,14 @@ def logout() -> RedirectResponse:
     return result
 
 
+@app.get("/admin/set-language/{lang}")
+def set_language(request: Request, lang: str) -> RedirectResponse:
+    selected = lang.strip().lower() if lang.strip().lower() in i18n.SUPPORTED_LOCALES else i18n.DEFAULT_LOCALE
+    result = redirect(safe_admin_return_url(request.headers.get("referer")))
+    result.set_cookie(WEB_UI_LANG_COOKIE, selected, max_age=LANG_COOKIE_MAX_AGE, samesite="lax")
+    return result
+
+
 @app.get("/admin/profile", response_class=HTMLResponse)
 def profile_page(request: Request) -> HTMLResponse:
     require_admin(request)
@@ -476,7 +511,9 @@ async def organization_settings_update(request: Request) -> HTMLResponse:
             errors.append("Цвета нужно указать в формате HEX, например #071a2f.")
             break
     if values.get("web_interface_language") not in i18n.SUPPORTED_LOCALES:
-        errors.append("Язык web-панели управления должен быть ru или en.")
+        errors.append("Язык web-панели управления по умолчанию должен быть ru или en.")
+    if values.get("bot_public_language") not in i18n.SUPPORTED_LOCALES:
+        errors.append("Язык публичного бота по умолчанию должен быть ru или en.")
     if errors:
         return render(
             request,

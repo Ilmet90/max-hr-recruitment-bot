@@ -11,6 +11,14 @@
   "common.active": "Active",
   "common.archive": "Archive",
   "common.all": "All",
+  "language.ru": "Russian",
+  "language.en": "English",
+  "language.switch": "Interface Language",
+  "language.interface_language": "This choice is saved only in the current browser.",
+  "language.default_web_language": "Default web panel language",
+  "language.default_bot_language": "Default public bot language",
+  "language.web_language_help": "Affects the management panel interface when the user has not selected a language manually.",
+  "language.bot_language_help": "Prepared for future localization of bot messages and buttons.",
   "nav.dashboard": "Dashboard",
   "nav.vacancies": "Vacancies",
   "nav.applications": "Applications",
@@ -42,6 +50,12 @@
   "login.password": "Password",
   "login.sign_in": "Sign In",
   "login.invalid_credentials": "Invalid login or password.",
+  "login.language": "Language",
   "about.title": "About",
-  "profile.temporary_password_warning": "You are using a temporary password. We recommend changing it in the My Profile section."
+  "profile.interface_language": "Interface Language",
+  "profile.temporary_password_warning": "You are using a temporary password. We recommend changing it in the My Profile section.",
+  "organization.web_interface_language": "Default web panel language",
+  "organization.bot_public_language": "Default public bot language",
+  "organization.web_interface_language_help": "Affects the management panel interface when the user has not selected a language manually.",
+  "organization.bot_public_language_help": "Prepared for future localization of bot messages and buttons."
 }

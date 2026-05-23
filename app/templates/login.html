@@ -20,6 +20,11 @@
     {% if request.query_params.get("error") %}
       <p class="alert">{{ t("login.invalid_credentials", "Неверный логин или пароль.") }}</p>
     {% endif %}
+    <div class="actions" aria-label="{{ t('login.language', 'Язык') }}">
+      <span class="small">{{ t("language.switch", "Язык интерфейса") }}</span>
+      <a class="button" href="/admin/login?lang=ru">{{ t("language.ru", "Русский") }}</a>
+      <a class="button" href="/admin/login?lang=en">{{ t("language.en", "English") }}</a>
+    </div>
     <form method="post" action="/admin/login">
       <label>{{ t("login.login", "Логин") }}<input name="username" autocomplete="username" required></label>
       <label>{{ t("login.password", "Пароль") }}<input name="password" type="password" autocomplete="current-password" required></label>

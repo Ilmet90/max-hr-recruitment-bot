@@ -32,12 +32,19 @@
     <h2>Web-интерфейс</h2>
     <label>Заголовок web-панели управления<input name="web_admin_title" value="{{ settings.web_admin_title }}"></label>
     <label>Заголовок в шапке<input name="web_admin_header" value="{{ settings.web_admin_header }}"></label>
-    <label>Язык web-панели управления
+    <label>{{ t("organization.web_interface_language", "Язык web-панели по умолчанию") }}
       <select name="web_interface_language">
-        <option value="ru" {% if settings.web_interface_language == "ru" %}selected{% endif %}>ru</option>
-        <option value="en" {% if settings.web_interface_language == "en" %}selected{% endif %}>en</option>
+        <option value="ru" {% if settings.web_interface_language == "ru" %}selected{% endif %}>ru — {{ t("language.ru", "Русский") }}</option>
+        <option value="en" {% if settings.web_interface_language == "en" %}selected{% endif %}>en — {{ t("language.en", "English") }}</option>
       </select>
-      <span class="small">Определяет язык интерфейса web-панели управления. Пользовательские тексты организации, вакансии и условия службы не переводятся автоматически.</span>
+      <span class="small">{{ t("organization.web_interface_language_help", "Влияет на интерфейс панели управления, если пользователь не выбрал язык вручную.") }}</span>
+    </label>
+    <label>{{ t("organization.bot_public_language", "Язык публичного бота по умолчанию") }}
+      <select name="bot_public_language">
+        <option value="ru" {% if settings.bot_public_language == "ru" %}selected{% endif %}>ru — {{ t("language.ru", "Русский") }}</option>
+        <option value="en" {% if settings.bot_public_language == "en" %}selected{% endif %}>en — {{ t("language.en", "English") }}</option>
+      </select>
+      <span class="small">{{ t("organization.bot_public_language_help", "Подготовлено для будущей локализации сообщений и кнопок бота.") }}</span>
     </label>
   </section>
 

@@ -17,6 +17,15 @@
   {% endif %}
 </section>
 
+<section class="panel">
+  <h2>{{ t("profile.interface_language", "Язык интерфейса") }}</h2>
+  <p class="small">{{ t("language.interface_language", "Этот выбор сохраняется только в текущем браузере.") }}</p>
+  <div class="actions">
+    <a class="button" href="/admin/set-language/ru">{{ t("language.ru", "Русский") }}</a>
+    <a class="button" href="/admin/set-language/en">{{ t("language.en", "English") }}</a>
+  </div>
+</section>
+
 <form class="form" method="post" action="/admin/profile">
   {% if current_admin.role != "superadmin" %}
   <h2>Смена логина</h2>

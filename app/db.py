@@ -71,6 +71,7 @@ DEFAULT_ORG_SETTINGS = {
     "web_admin_title": "Панель управления кадровым чат-ботом",
     "web_admin_header": "Панель управления кадровым чат-ботом",
     "web_interface_language": "ru",
+    "bot_public_language": "ru",
     "contacts_public_text": "По вопросам трудоустройства вы можете оставить сообщение через бота. Ответственный сотрудник свяжется с вами в рабочее время.",
     "theme_primary_color": "#071a2f",
     "theme_secondary_color": "#0d2f57",
@@ -97,7 +98,7 @@ ORG_SETTING_GROUPS = {
         "personal_data_warning",
         "contacts_public_text",
     ],
-    "web": ["web_admin_title", "web_admin_header", "web_interface_language"],
+    "web": ["web_admin_title", "web_admin_header", "web_interface_language", "bot_public_language"],
     "theme": ["theme_primary_color", "theme_secondary_color", "theme_accent_color"],
 }
 
