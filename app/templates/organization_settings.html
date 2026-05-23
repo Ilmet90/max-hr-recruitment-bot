@@ -32,6 +32,13 @@
     <h2>Web-интерфейс</h2>
     <label>Заголовок web-панели управления<input name="web_admin_title" value="{{ settings.web_admin_title }}"></label>
     <label>Заголовок в шапке<input name="web_admin_header" value="{{ settings.web_admin_header }}"></label>
+    <label>Язык web-панели управления
+      <select name="web_interface_language">
+        <option value="ru" {% if settings.web_interface_language == "ru" %}selected{% endif %}>ru</option>
+        <option value="en" {% if settings.web_interface_language == "en" %}selected{% endif %}>en</option>
+      </select>
+      <span class="small">Определяет язык интерфейса web-панели управления. Пользовательские тексты организации, вакансии и условия службы не переводятся автоматически.</span>
+    </label>
   </section>
 
   <section class="panel">

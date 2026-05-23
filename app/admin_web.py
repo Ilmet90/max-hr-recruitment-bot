@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app import db
+from app import i18n
 from app import maintenance
 from app import trudvsem_import
 from app.max_api import MaxAPI
@@ -103,12 +104,19 @@ def expired_session_cookie() -> str:
 def render(request: Request, template: str, context: dict | None = None) -> HTMLResponse:
     current = current_admin(request)
     org_settings = db.get_org_settings()
+    ui_lang = i18n.get_locale(org_settings)
+
+    def template_t(key: str, default: str | None = None) -> str:
+        return i18n.t(key, default=default, locale=ui_lang)
+
     data = {
         "request": request,
         "current_admin": current,
         "has_head_rights": has_head_rights(request) if current else False,
         "is_superadmin": is_superadmin(request) if current else False,
         "org_settings": org_settings,
+        "ui_lang": ui_lang,
+        "t": template_t,
         "title": org_settings["web_admin_title"],
         "role_label": db.role_label,
         "application_status_label": db.application_status_label,
@@ -467,6 +475,8 @@ async def organization_settings_update(request: Request) -> HTMLResponse:
         if not validate_hex_color(values.get(key, "")):
             errors.append("Цвета нужно указать в формате HEX, например #071a2f.")
             break
+    if values.get("web_interface_language") not in i18n.SUPPORTED_LOCALES:
+        errors.append("Язык web-панели управления должен быть ru или en.")
     if errors:
         return render(
             request,

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>О программе</h1>
+<h1>{{ t("about.title", "О программе") }}</h1>
 {% for message in messages or [] %}<p class="notice">{{ message }}</p>{% endfor %}
 {% for error in errors or [] %}<p class="alert">{{ error }}</p>{% endfor %}
 

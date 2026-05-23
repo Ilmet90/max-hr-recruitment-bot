@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Панель управления</h1>
+<h1>{{ t("dashboard.title", "Панель управления") }}</h1>
 <p class="lead"><strong>{{ org_settings.organization_short_name }}</strong><br>{{ org_settings.organization_full_name }}</p>
-<section class="stats" aria-label="Статистика панели управления">
-  <a class="stat-card stat-card-link" href="/admin/vacancies" aria-label="Перейти к списку вакансий" title="Перейти к списку вакансий"><strong>{{ vacancies }}</strong><span>вакансий</span></a>
-  <a class="stat-card stat-card-link" href="/admin/applications?view=active" aria-label="Перейти к откликам" title="Перейти к откликам"><strong>{{ applications }}</strong><span>откликов</span></a>
-  <a class="stat-card stat-card-link" href="/admin/questions?view=active" aria-label="Перейти к вопросам" title="Перейти к вопросам"><strong>{{ questions }}</strong><span>вопросов</span></a>
-  <a class="stat-card stat-card-link" href="/admin/appeals?view=active" aria-label="Перейти к сообщениям" title="Перейти к сообщениям"><strong>{{ appeals }}</strong><span>сообщений</span></a>
-  <a class="stat-card stat-card-link" href="/admin/admins" aria-label="Перейти к получателям уведомлений" title="Перейти к получателям уведомлений"><strong>{{ admins }}</strong><span>получателей</span></a>
+<section class="stats" aria-label="{{ t('dashboard.stats_label', 'Статистика панели управления') }}">
+  <a class="stat-card stat-card-link" href="/admin/vacancies" aria-label="{{ t('dashboard.go_to_vacancies', 'Перейти к списку вакансий') }}" title="{{ t('dashboard.go_to_vacancies', 'Перейти к списку вакансий') }}"><strong>{{ vacancies }}</strong><span>{{ t("dashboard.vacancies", "вакансий") }}</span></a>
+  <a class="stat-card stat-card-link" href="/admin/applications?view=active" aria-label="{{ t('dashboard.go_to_applications', 'Перейти к откликам') }}" title="{{ t('dashboard.go_to_applications', 'Перейти к откликам') }}"><strong>{{ applications }}</strong><span>{{ t("dashboard.applications", "откликов") }}</span></a>
+  <a class="stat-card stat-card-link" href="/admin/questions?view=active" aria-label="{{ t('dashboard.go_to_questions', 'Перейти к вопросам') }}" title="{{ t('dashboard.go_to_questions', 'Перейти к вопросам') }}"><strong>{{ questions }}</strong><span>{{ t("dashboard.questions", "вопросов") }}</span></a>
+  <a class="stat-card stat-card-link" href="/admin/appeals?view=active" aria-label="{{ t('dashboard.go_to_appeals', 'Перейти к сообщениям') }}" title="{{ t('dashboard.go_to_appeals', 'Перейти к сообщениям') }}"><strong>{{ appeals }}</strong><span>{{ t("dashboard.appeals", "сообщений") }}</span></a>
+  <a class="stat-card stat-card-link" href="/admin/admins" aria-label="{{ t('dashboard.go_to_recipients', 'Перейти к получателям уведомлений') }}" title="{{ t('dashboard.go_to_recipients', 'Перейти к получателям уведомлений') }}"><strong>{{ admins }}</strong><span>{{ t("dashboard.recipients", "получателей") }}</span></a>
 </section>
 {% endblock %}
