@@ -8,6 +8,10 @@ from typing import Any, Mapping
 
 DEFAULT_LOCALE = "ru"
 SUPPORTED_LOCALES = {"ru", "en"}
+LOCALE_LABEL_FALLBACKS = {
+    "ru": "Русский",
+    "en": "English",
+}
 
 LOCALES_DIR = Path(__file__).resolve().parent / "locales"
 _TRANSLATIONS: dict[str, dict[str, str]] = {}
@@ -50,6 +54,16 @@ def get_locale(settings: Mapping[str, Any] | str | None = None) -> str:
     if settings:
         return _normalize_locale(str(settings.get("web_interface_language") or ""))
     return DEFAULT_LOCALE
+
+
+def get_supported_locales() -> tuple[str, ...]:
+    return (DEFAULT_LOCALE, *tuple(sorted(SUPPORTED_LOCALES - {DEFAULT_LOCALE})))
+
+
+def get_locale_label(locale: str, current_locale: str | None = None) -> str:
+    normalized = _normalize_locale(locale)
+    fallback = LOCALE_LABEL_FALLBACKS.get(normalized, normalized)
+    return translate(f"language.names.{normalized}", default=fallback, locale=current_locale or normalized)
 
 
 def translate(key: str, default: str | None = None, locale: str | None = None) -> str:

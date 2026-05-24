@@ -1,17 +1,17 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Настройки</h1>
-{% for message in messages or [] %}<p class="alert">{{ message }}</p>{% endfor %}
+<h1>{{ t("settings.title", "Настройки") }}</h1>
+{% for message in messages or [] %}<p class="notice">{{ message }}</p>{% endfor %}
 {% for error in errors or [] %}<p class="alert">{{ error }}</p>{% endfor %}
 
 <section class="panel">
-  <h2>Служебный код регистрации сотрудников</h2>
-  <p class="small">Этот код используется сотрудниками отдела кадров для подачи заявки на доступ через команду /admin &lt;код&gt; в MAX-боте.</p>
-  <p><strong>Текущий код:</strong> {{ "установлен" if has_db_secret else "используется значение из .env" }}</p>
+  <h2>{{ t("settings.admin_secret_title", "Служебный код регистрации сотрудников") }}</h2>
+  <p class="small">{{ t("settings.admin_secret_help", "Этот код используется сотрудниками отдела кадров для подачи заявки на доступ через команду /admin <код> в MAX-боте.") }}</p>
+  <p><strong>{{ t("settings.current_code", "Текущий код") }}:</strong> {{ t("settings.current_code_set", "установлен") if has_db_secret else t("settings.current_code_env", "используется значение из .env") }}</p>
   <form class="form" method="post" action="/admin/settings/admin-secret">
-    <label>Новый код<input name="new_secret" required></label>
-    <label>Повтор нового кода<input name="repeat_secret" required></label>
-    <button>Сохранить</button>
+    <label>{{ t("settings.new_code", "Новый код") }}<input name="new_secret" required></label>
+    <label>{{ t("settings.repeat_new_code", "Повтор нового кода") }}<input name="repeat_secret" required></label>
+    <button>{{ t("common.save", "Сохранить") }}</button>
   </form>
 </section>
 {% endblock %}

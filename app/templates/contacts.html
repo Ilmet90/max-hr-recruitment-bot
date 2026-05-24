@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="page-head">
-  <h1>Контакты</h1>
-  <a class="button" href="/admin/contacts/new">Добавить</a>
+  <h1>{{ t("contacts.title", "Контакты") }}</h1>
+  <a class="button" href="/admin/contacts/new">{{ t("contacts.new", "Добавить") }}</a>
 </div>
 <table>
-  <thead><tr><th>ID</th><th>Порядок</th><th>Название</th><th>Значение</th><th>Статус</th><th>Действия</th></tr></thead>
+  <thead><tr><th>ID</th><th>{{ t("contacts.sort_order", "Порядок") }}</th><th>{{ t("contacts.title_field", "Название") }}</th><th>{{ t("contacts.value", "Значение") }}</th><th>{{ t("contacts.status", "Статус") }}</th><th>{{ t("contacts.actions", "Действия") }}</th></tr></thead>
   <tbody>
   {% for item in items %}
     <tr>
@@ -13,11 +13,11 @@
       <td>{{ item.sort_order }}</td>
       <td>{{ item.title }}</td>
       <td>{{ item.value }}</td>
-      <td>{{ "активен" if item.is_active else "выключен" }}</td>
+      <td>{{ t("statuses.active", "активен") if item.is_active else t("statuses.disabled", "выключен") }}</td>
       <td class="actions">
-        <a href="/admin/contacts/{{ item.id }}/edit">Редактировать</a>
-        <form method="post" action="/admin/contacts/{{ item.id }}/toggle"><button>{{ "Выключить" if item.is_active else "Включить" }}</button></form>
-        <form method="post" action="/admin/contacts/{{ item.id }}/delete" onsubmit="return confirm('Удалить контакт?')"><button class="danger">Удалить</button></form>
+        <a href="/admin/contacts/{{ item.id }}/edit">{{ t("actions.edit", "Редактировать") }}</a>
+        <form method="post" action="/admin/contacts/{{ item.id }}/toggle"><button>{{ t("actions.disable", "Выключить") if item.is_active else t("actions.enable", "Включить") }}</button></form>
+        <form method="post" action="/admin/contacts/{{ item.id }}/delete" onsubmit="return confirm('{{ t("contacts.delete_confirm", "Удалить контакт?") }}')"><button class="danger">{{ t("actions.delete", "Удалить") }}</button></form>
       </td>
     </tr>
   {% endfor %}

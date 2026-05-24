@@ -1,10 +1,9 @@
 <!doctype html>
 <html lang="{{ ui_lang or 'ru' }}">
-{% set login_page_title = t("login.title", org_settings.web_admin_title) if org_settings.web_admin_title == "Панель управления кадровым чат-ботом" else org_settings.web_admin_title %}
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ login_page_title }}</title>
+  <title>{{ web_admin_title }}</title>
   <link rel="stylesheet" href="/static/style.css">
   <style>
     :root {
@@ -16,15 +15,19 @@
 </head>
 <body class="login-page">
   <main class="login-box">
-    <h1>{{ login_page_title }}</h1>
+    <h1>{{ web_admin_title }}</h1>
     {% if request.query_params.get("error") %}
       <p class="alert">{{ t("login.invalid_credentials", "Неверный логин или пароль.") }}</p>
     {% endif %}
-    <div class="actions" aria-label="{{ t('login.language', 'Язык') }}">
-      <span class="small">{{ t("language.switch", "Язык интерфейса") }}</span>
-      <a class="button" href="/admin/login?lang=ru">{{ t("language.ru", "Русский") }}</a>
-      <a class="button" href="/admin/login?lang=en">{{ t("language.en", "English") }}</a>
-    </div>
+    <form class="language-select-form login-language-switcher" method="get" action="/admin/login">
+      <label for="login-language">{{ t("language.select_label", "Язык / Language") }}</label>
+      <select id="login-language" class="language-select" name="lang" onchange="this.form.submit()">
+        {% for locale in supported_locales %}
+          <option value="{{ locale }}" {% if locale == ui_lang %}selected{% endif %}>{{ locale_label(locale) }}</option>
+        {% endfor %}
+      </select>
+      <noscript><button type="submit">{{ t("common.save", "Сохранить") }}</button></noscript>
+    </form>
     <form method="post" action="/admin/login">
       <label>{{ t("login.login", "Логин") }}<input name="username" autocomplete="username" required></label>
       <label>{{ t("login.password", "Пароль") }}<input name="password" type="password" autocomplete="current-password" required></label>

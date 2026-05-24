@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ title or org_settings.web_admin_title }}</title>
+  <title>{{ title or web_admin_title }}</title>
   <link rel="stylesheet" href="/static/style.css">
   <style>
     :root {
@@ -15,7 +15,7 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/admin">{{ org_settings.web_admin_header }}</a>
+    <a class="brand" href="/admin">{{ web_admin_header }}</a>
     <nav>
       <a href="/admin/vacancies">{{ t("nav.vacancies", "Вакансии") }}</a>
       <a href="/admin/service">{{ t("nav.service", "Условия") }}</a>
