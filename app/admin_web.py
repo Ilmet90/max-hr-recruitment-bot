@@ -121,6 +121,23 @@ def render(request: Request, template: str, context: dict | None = None) -> HTML
     def template_t(key: str, default: str | None = None) -> str:
         return i18n.t(key, default=default, locale=ui_lang)
 
+    def localized_role_label(role: str | None) -> str:
+        return template_t(f"roles.{role or 'pending'}", db.role_label(role))
+
+    def localized_application_status_label(status: str | None) -> str:
+        status_key = {"done": "processed"}.get(status or "new", status or "new")
+        return template_t(f"statuses.{status_key}", db.application_status_label(status))
+
+    def localized_access_label(admin: dict) -> str:
+        if admin.get("role") == "pending" or int(admin.get("approved") or 0) == 0:
+            return template_t("statuses.pending", db.access_label(admin))
+        if admin.get("role") == "disabled" or int(admin.get("is_active") or 0) == 0:
+            return template_t("statuses.disabled", db.access_label(admin))
+        return template_t("statuses.active", db.access_label(admin))
+
+    def localized_bool_label(value: object) -> str:
+        return template_t("statuses.active", "включено") if int(value or 0) == 1 else template_t("statuses.disabled", "отключено")
+
     data = {
         "request": request,
         "current_admin": current,
@@ -130,12 +147,12 @@ def render(request: Request, template: str, context: dict | None = None) -> HTML
         "ui_lang": ui_lang,
         "t": template_t,
         "title": org_settings["web_admin_title"],
-        "role_label": db.role_label,
-        "application_status_label": db.application_status_label,
+        "role_label": localized_role_label,
+        "application_status_label": localized_application_status_label,
         "service_info_label": db.service_info_label,
         "service_info_help": db.service_info_help,
-        "access_label": db.access_label,
-        "bool_label": db.bool_label,
+        "access_label": localized_access_label,
+        "bool_label": localized_bool_label,
         "maintenance_sudoers_command": maintenance.sudoers_setup_command(),
     }
     if context:

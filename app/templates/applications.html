@@ -2,25 +2,25 @@
 {% block content %}
 <div class="page-head">
   <div>
-    <h1>Отклики</h1>
+    <h1>{{ t("applications.title", "Отклики") }}</h1>
     {% if vacancy %}
-      <p class="small">Отклики на вакансию: {{ vacancy.title }}</p>
+      <p class="small">{{ t("applications.for_vacancy", "Отклики на вакансию") }}: {{ vacancy.title }}</p>
     {% endif %}
   </div>
   {% if vacancy_id %}
-    <a class="button" href="/admin/applications?view={{ view }}">Показать все отклики</a>
+    <a class="button" href="/admin/applications?view={{ view }}">{{ t("applications.show_all", "Показать все отклики") }}</a>
   {% endif %}
 </div>
 
 <div class="actions">
-  <a class="button{% if view == 'active' %} secondary{% endif %}" href="/admin/applications?view=active{% if vacancy_id %}&vacancy_id={{ vacancy_id }}{% endif %}">Активные</a>
-  <a class="button{% if view == 'archive' %} secondary{% endif %}" href="/admin/applications?view=archive{% if vacancy_id %}&vacancy_id={{ vacancy_id }}{% endif %}">Архив</a>
-  <a class="button{% if view == 'all' %} secondary{% endif %}" href="/admin/applications?view=all{% if vacancy_id %}&vacancy_id={{ vacancy_id }}{% endif %}">Все</a>
+  <a class="button{% if view == 'active' %} secondary{% endif %}" href="/admin/applications?view=active{% if vacancy_id %}&vacancy_id={{ vacancy_id }}{% endif %}">{{ t("applications.view_active", "Активные") }}</a>
+  <a class="button{% if view == 'archive' %} secondary{% endif %}" href="/admin/applications?view=archive{% if vacancy_id %}&vacancy_id={{ vacancy_id }}{% endif %}">{{ t("applications.view_archive", "Архив") }}</a>
+  <a class="button{% if view == 'all' %} secondary{% endif %}" href="/admin/applications?view=all{% if vacancy_id %}&vacancy_id={{ vacancy_id }}{% endif %}">{{ t("applications.view_all", "Все") }}</a>
 </div>
 
 <table>
   <thead>
-    <tr><th>ID</th><th>Дата</th><th>Вакансия</th><th>ФИО</th><th>Телефон</th><th>Статус</th><th>Ответственный</th><th>Дата принятия</th><th>Действия</th></tr>
+    <tr><th>ID</th><th>{{ t("applications.created_at", "Дата") }}</th><th>{{ t("applications.vacancy", "Вакансия") }}</th><th>{{ t("applications.full_name", "ФИО") }}</th><th>{{ t("applications.phone", "Телефон") }}</th><th>{{ t("applications.status", "Статус") }}</th><th>{{ t("applications.responsible", "Ответственный") }}</th><th>{{ t("applications.taken_at", "Дата принятия") }}</th><th>{{ t("applications.actions", "Действия") }}</th></tr>
   </thead>
   <tbody>
   {% for item in items %}
@@ -30,18 +30,18 @@
       <td>
         {{ item.vacancy_title }}
         {% if item.is_archived %}
-          <div class="small">В архиве{% if item.archived_at %}: {{ item.archived_at }}{% endif %}</div>
+          <div class="small">{{ t("statuses.archived", "В архиве") }}{% if item.archived_at %}: {{ item.archived_at }}{% endif %}</div>
         {% endif %}
       </td>
-      <td>{{ item.full_name }}<div class="small">Возраст: {{ item.age }}<br>Образование: {{ item.education }}<br>Служба: {{ item.military_service }}<br>Время: {{ item.preferred_time }}<br>{{ item.comment }}</div></td>
+      <td>{{ item.full_name }}<div class="small">{{ t("applications.age", "Возраст") }}: {{ item.age }}<br>{{ t("applications.education", "Образование") }}: {{ item.education }}<br>{{ t("applications.military_service", "Служба") }}: {{ item.military_service }}<br>{{ t("applications.preferred_time", "Время") }}: {{ item.preferred_time }}<br>{{ item.comment }}</div></td>
       <td>{{ item.phone }}</td>
       <td>{{ application_status_label(item.status) }}</td>
-      <td>{{ item.assigned_to_name or "не назначен" }}</td>
+      <td>{{ item.assigned_to_name or t("applications.not_assigned", "не назначен") }}</td>
       <td>{{ item.taken_at or "" }}</td>
       <td class="actions">
         {% if not item.is_archived %}
           {% if not item.assigned_to_admin_id and item.status == "new" and current_admin and current_admin.role != "superadmin" %}
-            <form method="post" action="/admin/applications/{{ item.id }}/take{% if return_query %}?{{ return_query }}{% endif %}"><button>Принять в работу</button></form>
+            <form method="post" action="/admin/applications/{{ item.id }}/take{% if return_query %}?{{ return_query }}{% endif %}"><button>{{ t("applications.take_in_work", "Принять в работу") }}</button></form>
           {% endif %}
           {% if can_assign %}
             <form method="post" action="/admin/applications/{{ item.id }}/assign{% if return_query %}?{{ return_query }}{% endif %}">
@@ -50,28 +50,30 @@
                   <option value="{{ admin.id }}">{{ admin.display_name or admin.web_login or admin.max_user_id }}</option>
                 {% endfor %}
               </select>
-              <button>Назначить</button>
+              <button>{{ t("applications.assign", "Назначить") }}</button>
             </form>
-            <form method="post" action="/admin/applications/{{ item.id }}/release{% if return_query %}?{{ return_query }}{% endif %}"><button>Снять</button></form>
+            <form method="post" action="/admin/applications/{{ item.id }}/release{% if return_query %}?{{ return_query }}{% endif %}"><button>{{ t("applications.release", "Снять") }}</button></form>
           {% endif %}
           <form method="post" action="/admin/applications/{{ item.id }}/status{% if return_query %}?{{ return_query }}{% endif %}" class="status-form">
             <select name="status">
-              <option value="new" {% if item.status == "new" %}selected{% endif %}>Новый</option>
-              <option value="in_work" {% if item.status == "in_work" %}selected{% endif %}>В работе</option>
-              <option value="done" {% if item.status == "done" %}selected{% endif %}>Обработан</option>
-              <option value="rejected" {% if item.status == "rejected" %}selected{% endif %}>Отклонён</option>
+              <option value="new" {% if item.status == "new" %}selected{% endif %}>{{ t("statuses.new", "Новый") }}</option>
+              <option value="in_work" {% if item.status == "in_work" %}selected{% endif %}>{{ t("statuses.in_work", "В работе") }}</option>
+              <option value="done" {% if item.status == "done" %}selected{% endif %}>{{ t("statuses.processed", "Обработан") }}</option>
+              <option value="rejected" {% if item.status == "rejected" %}selected{% endif %}>{{ t("statuses.rejected", "Отклонён") }}</option>
             </select>
             <button>OK</button>
           </form>
-          <form method="post" action="/admin/applications/{{ item.id }}/archive{% if return_query %}?{{ return_query }}{% endif %}"><button>Архивировать</button></form>
+          <form method="post" action="/admin/applications/{{ item.id }}/archive{% if return_query %}?{{ return_query }}{% endif %}"><button>{{ t("applications.archive", "Архивировать") }}</button></form>
         {% else %}
-          <form method="post" action="/admin/applications/{{ item.id }}/unarchive{% if return_query %}?{{ return_query }}{% endif %}"><button>Вернуть из архива</button></form>
+          <form method="post" action="/admin/applications/{{ item.id }}/unarchive{% if return_query %}?{{ return_query }}{% endif %}"><button>{{ t("applications.unarchive", "Вернуть из архива") }}</button></form>
         {% endif %}
         {% if can_delete_permanently %}
-          <form method="post" action="/admin/applications/{{ item.id }}/delete-permanently{% if return_query %}?{{ return_query }}{% endif %}" onsubmit="return confirm('Удалить запись полностью? Это действие нельзя отменить.')"><button class="danger">Удалить полностью</button></form>
+          <form method="post" action="/admin/applications/{{ item.id }}/delete-permanently{% if return_query %}?{{ return_query }}{% endif %}" onsubmit="return confirm('{{ t("actions.confirm_delete", "Удалить запись полностью? Это действие нельзя отменить.") }}')"><button class="danger">{{ t("applications.delete_permanently", "Удалить полностью") }}</button></form>
         {% endif %}
       </td>
     </tr>
+  {% else %}
+    <tr><td colspan="9">{{ t("applications.empty", "Откликов нет.") }}</td></tr>
   {% endfor %}
   </tbody>
 </table>

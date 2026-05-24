@@ -1,17 +1,17 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="page-head">
-  <h1>Сообщения</h1>
+  <h1>{{ t("appeals.title", "Сообщения") }}</h1>
 </div>
 
 <div class="actions">
-  <a class="button{% if view == 'active' %} secondary{% endif %}" href="/admin/appeals?view=active">Активные</a>
-  <a class="button{% if view == 'archive' %} secondary{% endif %}" href="/admin/appeals?view=archive">Архив</a>
-  <a class="button{% if view == 'all' %} secondary{% endif %}" href="/admin/appeals?view=all">Все</a>
+  <a class="button{% if view == 'active' %} secondary{% endif %}" href="/admin/appeals?view=active">{{ t("applications.view_active", "Активные") }}</a>
+  <a class="button{% if view == 'archive' %} secondary{% endif %}" href="/admin/appeals?view=archive">{{ t("applications.view_archive", "Архив") }}</a>
+  <a class="button{% if view == 'all' %} secondary{% endif %}" href="/admin/appeals?view=all">{{ t("applications.view_all", "Все") }}</a>
 </div>
 
 <table>
-  <thead><tr><th>ID</th><th>Дата</th><th>ФИО</th><th>Телефон</th><th>Текст</th><th>Статус</th><th>Архив</th><th>Действия</th></tr></thead>
+  <thead><tr><th>ID</th><th>{{ t("appeals.created_at", "Дата") }}</th><th>{{ t("appeals.sender", "ФИО") }}</th><th>{{ t("appeals.phone", "Телефон") }}</th><th>{{ t("appeals.message", "Текст") }}</th><th>{{ t("appeals.status", "Статус") }}</th><th>{{ t("common.archive", "Архив") }}</th><th>{{ t("appeals.actions", "Действия") }}</th></tr></thead>
   <tbody>
   {% for item in items %}
     <tr>
@@ -27,18 +27,20 @@
           {{ application_status_label(item.status) }}
         {% endif %}
       </td>
-      <td>{% if item.is_archived %}В архиве{% else %}Активен{% endif %}</td>
+      <td>{% if item.is_archived %}{{ t("statuses.archived", "В архиве") }}{% else %}{{ t("statuses.active", "Активен") }}{% endif %}</td>
       <td class="actions">
         {% if item.is_archived %}
-          <form method="post" action="/admin/appeals/{{ item.id }}/unarchive{% if return_query %}?{{ return_query }}{% endif %}"><button>Вернуть из архива</button></form>
+          <form method="post" action="/admin/appeals/{{ item.id }}/unarchive{% if return_query %}?{{ return_query }}{% endif %}"><button>{{ t("appeals.unarchive", "Вернуть из архива") }}</button></form>
         {% else %}
-          <form method="post" action="/admin/appeals/{{ item.id }}/archive{% if return_query %}?{{ return_query }}{% endif %}"><button>Архивировать</button></form>
+          <form method="post" action="/admin/appeals/{{ item.id }}/archive{% if return_query %}?{{ return_query }}{% endif %}"><button>{{ t("appeals.archive", "Архивировать") }}</button></form>
         {% endif %}
         {% if can_delete_permanently %}
-          <form method="post" action="/admin/appeals/{{ item.id }}/delete-permanently{% if return_query %}?{{ return_query }}{% endif %}" onsubmit="return confirm('Удалить запись полностью? Это действие нельзя отменить.')"><button class="danger">Удалить полностью</button></form>
+          <form method="post" action="/admin/appeals/{{ item.id }}/delete-permanently{% if return_query %}?{{ return_query }}{% endif %}" onsubmit="return confirm('{{ t("actions.confirm_delete", "Удалить запись полностью? Это действие нельзя отменить.") }}')"><button class="danger">{{ t("appeals.delete_permanently", "Удалить полностью") }}</button></form>
         {% endif %}
       </td>
     </tr>
+  {% else %}
+    <tr><td colspan="8">{{ t("appeals.empty", "Сообщений нет.") }}</td></tr>
   {% endfor %}
   </tbody>
 </table>

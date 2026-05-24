@@ -1,8 +1,8 @@
 <form method="post" action="/admin/{{ table }}/{{ item.id }}/status{% if return_query %}?{{ return_query }}{% endif %}" class="status-form">
   <select name="status">
-    <option value="new" {% if item.status == "new" %}selected{% endif %}>Новый</option>
-    <option value="in_work" {% if item.status == "in_work" %}selected{% endif %}>В работе</option>
-    <option value="done" {% if item.status == "done" %}selected{% endif %}>Обработан</option>
+    <option value="new" {% if item.status == "new" %}selected{% endif %}>{{ t("statuses.new", "Новый") }}</option>
+    <option value="in_work" {% if item.status == "in_work" %}selected{% endif %}>{{ t("statuses.in_work", "В работе") }}</option>
+    <option value="done" {% if item.status == "done" %}selected{% endif %}>{{ t("statuses.processed", "Обработан") }}</option>
   </select>
   <button>OK</button>
 </form>
