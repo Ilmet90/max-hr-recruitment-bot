@@ -5,18 +5,30 @@
 </div>
 
 <div class="actions">
-  <a class="button{% if view == 'active' %} secondary{% endif %}" href="/admin/appeals?view=active">{{ t("applications.view_active", "Активные") }}</a>
-  <a class="button{% if view == 'archive' %} secondary{% endif %}" href="/admin/appeals?view=archive">{{ t("applications.view_archive", "Архив") }}</a>
-  <a class="button{% if view == 'all' %} secondary{% endif %}" href="/admin/appeals?view=all">{{ t("applications.view_all", "Все") }}</a>
+  <a class="button{% if view == 'active' %} secondary{% endif %}" href="/admin/appeals?view=active&source={{ source_filter }}">{{ t("applications.view_active", "Активные") }}</a>
+  <a class="button{% if view == 'archive' %} secondary{% endif %}" href="/admin/appeals?view=archive&source={{ source_filter }}">{{ t("applications.view_archive", "Архив") }}</a>
+  <a class="button{% if view == 'all' %} secondary{% endif %}" href="/admin/appeals?view=all&source={{ source_filter }}">{{ t("applications.view_all", "Все") }}</a>
+  <form class="status-form" method="get" action="/admin/appeals">
+    <input type="hidden" name="view" value="{{ view }}">
+    <label>{{ t("source.filter", "Источник") }}
+      <select name="source" onchange="this.form.submit()">
+        {% for source in source_options %}
+          <option value="{{ source }}" {% if source == source_filter %}selected{% endif %}>{{ source_filter_label(source) }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <noscript><button type="submit">{{ t("common.filter", "Фильтр") }}</button></noscript>
+  </form>
 </div>
 
 <table>
-  <thead><tr><th>ID</th><th>{{ t("appeals.created_at", "Дата") }}</th><th>{{ t("appeals.sender", "ФИО") }}</th><th>{{ t("appeals.phone", "Телефон") }}</th><th>{{ t("appeals.message", "Текст") }}</th><th>{{ t("appeals.status", "Статус") }}</th><th>{{ t("common.archive", "Архив") }}</th><th>{{ t("appeals.actions", "Действия") }}</th></tr></thead>
+  <thead><tr><th>ID</th><th>{{ t("appeals.created_at", "Дата") }}</th><th>{{ t("appeals.source", "Источник") }}</th><th>{{ t("appeals.sender", "ФИО") }}</th><th>{{ t("appeals.phone", "Телефон") }}</th><th>{{ t("appeals.message", "Текст") }}</th><th>{{ t("appeals.status", "Статус") }}</th><th>{{ t("common.archive", "Архив") }}</th><th>{{ t("appeals.actions", "Действия") }}</th></tr></thead>
   <tbody>
   {% for item in items %}
     <tr>
       <td>{{ item.id }}</td>
       <td>{{ item.created_at }}</td>
+      <td>{{ source_messenger_label(item.source_messenger) }}</td>
       <td>{{ item.full_name }}</td>
       <td>{{ item.phone }}</td>
       <td>{{ item.appeal_text }}</td>
@@ -40,7 +52,7 @@
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="8">{{ t("appeals.empty", "Сообщений нет.") }}</td></tr>
+    <tr><td colspan="9">{{ t("appeals.empty", "Сообщений нет.") }}</td></tr>
   {% endfor %}
   </tbody>
 </table>

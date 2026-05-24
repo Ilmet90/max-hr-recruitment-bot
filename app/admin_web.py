@@ -39,6 +39,7 @@ WEB_UI_LANG_COOKIE = "web_ui_lang"
 BOOT_SESSION_ID = secrets.token_urlsafe(16)
 SESSION_TTL_SECONDS = 8 * 60 * 60
 LANG_COOKIE_MAX_AGE = 365 * 24 * 60 * 60
+SOURCE_OPTIONS = ("all", "max", "telegram", "web", "unknown")
 
 app = FastAPI(title=db.DEFAULT_ORG_SETTINGS["web_admin_title"])
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -168,6 +169,16 @@ def render(request: Request, template: str, context: dict | None = None) -> HTML
     def localized_bool_label(value: object) -> str:
         return template_t("statuses.active", "включено") if int(value or 0) == 1 else template_t("statuses.disabled", "отключено")
 
+    def localized_source_messenger_label(value: str | None) -> str:
+        source = db.normalize_source_messenger(value, default="unknown")
+        return template_t(f"source.{source}", "Unknown")
+
+    def localized_source_filter_label(value: str | None) -> str:
+        source = str(value or "all").strip().lower()
+        if source == "all":
+            return template_t("source.all", "Все источники")
+        return localized_source_messenger_label(source)
+
     def localized_service_info_label(key: str | None) -> str:
         service_key = key or ""
         return template_t(f"service.info.{service_key}", db.service_info_label(service_key))
@@ -204,6 +215,9 @@ def render(request: Request, template: str, context: dict | None = None) -> HTML
         "service_info_help": localized_service_info_help,
         "access_label": localized_access_label,
         "bool_label": localized_bool_label,
+        "source_messenger_label": localized_source_messenger_label,
+        "source_filter_label": localized_source_filter_label,
+        "source_options": SOURCE_OPTIONS,
         "maintenance_sudoers_command": maintenance.sudoers_setup_command(),
     }
     if context:
@@ -351,8 +365,13 @@ def archive_view(request: Request) -> str:
     return view if view in {"active", "archive", "all"} else "active"
 
 
+def source_view(request: Request) -> str:
+    source = request.query_params.get("source", "all").strip().lower()
+    return source if source in SOURCE_OPTIONS else "all"
+
+
 def collection_query(request: Request, include_vacancy: bool = False) -> str:
-    params: dict[str, str] = {"view": archive_view(request)}
+    params: dict[str, str] = {"view": archive_view(request), "source": source_view(request)}
     vacancy_id = request.query_params.get("vacancy_id") if include_vacancy else None
     if vacancy_id:
         params["vacancy_id"] = vacancy_id
@@ -1205,6 +1224,7 @@ def contact_delete(request: Request, contact_id: int) -> RedirectResponse:
 def applications(request: Request) -> HTMLResponse:
     require_admin(request)
     view = archive_view(request)
+    source = source_view(request)
     vacancy_id_text = request.query_params.get("vacancy_id", "").strip()
     vacancy_id = int(vacancy_id_text) if vacancy_id_text.isdigit() else None
     vacancy = db.get_vacancy(vacancy_id) if vacancy_id else None
@@ -1212,12 +1232,13 @@ def applications(request: Request) -> HTMLResponse:
         request,
         "applications.html",
         {
-            "items": db.list_applications(view=view, vacancy_id=vacancy_id),
+            "items": db.list_applications(view=view, vacancy_id=vacancy_id, source=source),
             "table": "applications",
             "staff": db.active_staff(),
             "can_assign": can_assign_applications(request),
             "can_delete_permanently": can_delete_records_permanently(request),
             "view": view,
+            "source_filter": source,
             "vacancy_id": vacancy_id,
             "vacancy": vacancy,
             "return_query": collection_query(request, include_vacancy=True),
@@ -1229,13 +1250,15 @@ def applications(request: Request) -> HTMLResponse:
 def questions(request: Request) -> HTMLResponse:
     require_admin(request)
     view = archive_view(request)
+    source = source_view(request)
     return render(
         request,
         "questions.html",
         {
-            "items": db.list_questions(view=view),
+            "items": db.list_questions(view=view, source=source),
             "table": "questions",
             "view": view,
+            "source_filter": source,
             "return_query": collection_query(request),
             "can_delete_permanently": can_delete_records_permanently(request),
         },
@@ -1246,13 +1269,15 @@ def questions(request: Request) -> HTMLResponse:
 def appeals(request: Request) -> HTMLResponse:
     require_admin(request)
     view = archive_view(request)
+    source = source_view(request)
     return render(
         request,
         "appeals.html",
         {
-            "items": db.list_appeals(view=view),
+            "items": db.list_appeals(view=view, source=source),
             "table": "appeals",
             "view": view,
+            "source_filter": source,
             "return_query": collection_query(request),
             "can_delete_permanently": can_delete_records_permanently(request),
         },

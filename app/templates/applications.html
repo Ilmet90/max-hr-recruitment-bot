@@ -8,25 +8,38 @@
     {% endif %}
   </div>
   {% if vacancy_id %}
-    <a class="button" href="/admin/applications?view={{ view }}">{{ t("applications.show_all", "Показать все отклики") }}</a>
+    <a class="button" href="/admin/applications?view={{ view }}&source={{ source_filter }}">{{ t("applications.show_all", "Показать все отклики") }}</a>
   {% endif %}
 </div>
 
 <div class="actions">
-  <a class="button{% if view == 'active' %} secondary{% endif %}" href="/admin/applications?view=active{% if vacancy_id %}&vacancy_id={{ vacancy_id }}{% endif %}">{{ t("applications.view_active", "Активные") }}</a>
-  <a class="button{% if view == 'archive' %} secondary{% endif %}" href="/admin/applications?view=archive{% if vacancy_id %}&vacancy_id={{ vacancy_id }}{% endif %}">{{ t("applications.view_archive", "Архив") }}</a>
-  <a class="button{% if view == 'all' %} secondary{% endif %}" href="/admin/applications?view=all{% if vacancy_id %}&vacancy_id={{ vacancy_id }}{% endif %}">{{ t("applications.view_all", "Все") }}</a>
+  <a class="button{% if view == 'active' %} secondary{% endif %}" href="/admin/applications?view=active&source={{ source_filter }}{% if vacancy_id %}&vacancy_id={{ vacancy_id }}{% endif %}">{{ t("applications.view_active", "Активные") }}</a>
+  <a class="button{% if view == 'archive' %} secondary{% endif %}" href="/admin/applications?view=archive&source={{ source_filter }}{% if vacancy_id %}&vacancy_id={{ vacancy_id }}{% endif %}">{{ t("applications.view_archive", "Архив") }}</a>
+  <a class="button{% if view == 'all' %} secondary{% endif %}" href="/admin/applications?view=all&source={{ source_filter }}{% if vacancy_id %}&vacancy_id={{ vacancy_id }}{% endif %}">{{ t("applications.view_all", "Все") }}</a>
+  <form class="status-form" method="get" action="/admin/applications">
+    <input type="hidden" name="view" value="{{ view }}">
+    {% if vacancy_id %}<input type="hidden" name="vacancy_id" value="{{ vacancy_id }}">{% endif %}
+    <label>{{ t("source.filter", "Источник") }}
+      <select name="source" onchange="this.form.submit()">
+        {% for source in source_options %}
+          <option value="{{ source }}" {% if source == source_filter %}selected{% endif %}>{{ source_filter_label(source) }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <noscript><button type="submit">{{ t("common.filter", "Фильтр") }}</button></noscript>
+  </form>
 </div>
 
 <table>
   <thead>
-    <tr><th>ID</th><th>{{ t("applications.created_at", "Дата") }}</th><th>{{ t("applications.vacancy", "Вакансия") }}</th><th>{{ t("applications.full_name", "ФИО") }}</th><th>{{ t("applications.phone", "Телефон") }}</th><th>{{ t("applications.status", "Статус") }}</th><th>{{ t("applications.responsible", "Ответственный") }}</th><th>{{ t("applications.taken_at", "Дата принятия") }}</th><th>{{ t("applications.actions", "Действия") }}</th></tr>
+    <tr><th>ID</th><th>{{ t("applications.created_at", "Дата") }}</th><th>{{ t("applications.source", "Источник") }}</th><th>{{ t("applications.vacancy", "Вакансия") }}</th><th>{{ t("applications.full_name", "ФИО") }}</th><th>{{ t("applications.phone", "Телефон") }}</th><th>{{ t("applications.status", "Статус") }}</th><th>{{ t("applications.responsible", "Ответственный") }}</th><th>{{ t("applications.taken_at", "Дата принятия") }}</th><th>{{ t("applications.actions", "Действия") }}</th></tr>
   </thead>
   <tbody>
   {% for item in items %}
     <tr>
       <td>{{ item.id }}</td>
       <td>{{ item.created_at }}</td>
+      <td>{{ source_messenger_label(item.source_messenger) }}</td>
       <td>
         {{ item.vacancy_title }}
         {% if item.is_archived %}
@@ -73,7 +86,7 @@
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="9">{{ t("applications.empty", "Откликов нет.") }}</td></tr>
+    <tr><td colspan="10">{{ t("applications.empty", "Откликов нет.") }}</td></tr>
   {% endfor %}
   </tbody>
 </table>

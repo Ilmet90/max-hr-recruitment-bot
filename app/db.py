@@ -45,6 +45,9 @@ APPLICATION_STATUS_LABELS = {
     "rejected": "Отклонён",
 }
 
+SOURCE_MESSENGERS = {"max", "telegram", "web", "unknown"}
+SOURCE_FILTERS = {"all", *SOURCE_MESSENGERS}
+
 DEFAULT_ORG_SETTINGS = {
     "organization_full_name": "Название организации",
     "organization_short_name": "Организация",
@@ -142,6 +145,11 @@ def role_label(role: str | None) -> str:
 
 def application_status_label(status: str | None) -> str:
     return APPLICATION_STATUS_LABELS.get(status or "new", status or "Новый")
+
+
+def normalize_source_messenger(value: Any, default: str = "max") -> str:
+    source = str(value or "").strip().lower() or default
+    return source if source in SOURCE_MESSENGERS else "unknown"
 
 
 def service_info_label(key: str | None) -> str:
@@ -311,6 +319,7 @@ def init_db() -> None:
         )
         ensure_admins_schema(conn)
         ensure_applications_schema(conn)
+        ensure_messenger_source_schema(conn)
         ensure_archive_schema(conn)
         ensure_vacancies_external_schema(conn)
         ensure_service_photos_schema(conn)
@@ -367,6 +376,56 @@ def ensure_applications_schema(conn: sqlite3.Connection) -> None:
     for column, sql in migrations.items():
         if column not in columns:
             conn.execute(sql)
+
+
+def ensure_messenger_source_schema(conn: sqlite3.Connection) -> None:
+    migrations = {
+        "source_messenger": "TEXT DEFAULT 'max'",
+        "source_user_id": "TEXT",
+        "source_chat_id": "TEXT",
+        "source_display_name": "TEXT",
+    }
+    for table in ("applications", "questions", "appeals"):
+        columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        for column, definition in migrations.items():
+            if column not in columns:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        conn.execute(
+            f"""
+            UPDATE {table}
+            SET source_messenger = 'max'
+            WHERE source_messenger IS NULL OR TRIM(source_messenger) = ''
+            """
+        )
+        conn.execute(f"UPDATE {table} SET source_messenger = LOWER(TRIM(source_messenger)) WHERE source_messenger IS NOT NULL")
+        conn.execute(
+            f"""
+            UPDATE {table}
+            SET source_messenger = 'unknown'
+            WHERE source_messenger NOT IN ('max', 'telegram', 'web', 'unknown')
+            """
+        )
+        if "max_user_id" in columns:
+            conn.execute(
+                f"""
+                UPDATE {table}
+                SET source_user_id = max_user_id
+                WHERE (source_user_id IS NULL OR TRIM(source_user_id) = '')
+                  AND max_user_id IS NOT NULL
+                  AND TRIM(max_user_id) != ''
+                """
+            )
+        if "chat_id" in columns:
+            conn.execute(
+                f"""
+                UPDATE {table}
+                SET source_chat_id = chat_id
+                WHERE (source_chat_id IS NULL OR TRIM(source_chat_id) = '')
+                  AND chat_id IS NOT NULL
+                  AND TRIM(chat_id) != ''
+                """
+            )
 
 
 
@@ -978,13 +1037,24 @@ def delete_contact(contact_id: int) -> None:
     execute("DELETE FROM contacts WHERE id = ?", (contact_id,))
 
 
-def create_application(data: dict[str, Any]) -> int:
+def create_application(
+    data: dict[str, Any],
+    source_messenger: str | None = None,
+    source_user_id: str | None = None,
+    source_chat_id: str | None = None,
+    source_display_name: str | None = None,
+) -> int:
+    source = normalize_source_messenger(source_messenger if source_messenger is not None else data.get("source_messenger"), default="max")
+    source_user = source_user_id or data.get("source_user_id") or data.get("max_user_id")
+    source_chat = source_chat_id or data.get("source_chat_id") or data.get("chat_id")
+    source_name = source_display_name or data.get("source_display_name") or data.get("display_name")
     return execute(
         """
         INSERT INTO applications
         (max_user_id, vacancy_id, vacancy_title, full_name, age, phone, education,
-         military_service, preferred_time, comment, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)
+         military_service, preferred_time, comment, status, created_at,
+         source_messenger, source_user_id, source_chat_id, source_display_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?, ?)
         """,
         (
             data.get("max_user_id"),
@@ -998,21 +1068,54 @@ def create_application(data: dict[str, Any]) -> int:
             data.get("preferred_time"),
             data.get("comment"),
             now_iso(),
+            source,
+            source_user,
+            source_chat,
+            source_name,
         ),
     )
 
 
-def create_question(max_user_id: str, question_text: str, contact: str) -> int:
+def create_question(
+    max_user_id: str,
+    question_text: str,
+    contact: str,
+    source_messenger: str = "max",
+    source_user_id: str | None = None,
+    source_chat_id: str | None = None,
+    source_display_name: str | None = None,
+) -> int:
+    source = normalize_source_messenger(source_messenger, default="max")
     return execute(
-        "INSERT INTO questions (max_user_id, question_text, contact, status, created_at) VALUES (?, ?, ?, 'new', ?)",
-        (max_user_id, question_text, contact, now_iso()),
+        """
+        INSERT INTO questions
+        (max_user_id, question_text, contact, status, created_at,
+         source_messenger, source_user_id, source_chat_id, source_display_name)
+        VALUES (?, ?, ?, 'new', ?, ?, ?, ?, ?)
+        """,
+        (max_user_id, question_text, contact, now_iso(), source, source_user_id or max_user_id, source_chat_id, source_display_name),
     )
 
 
-def create_appeal(max_user_id: str, full_name: str, phone: str, appeal_text: str) -> int:
+def create_appeal(
+    max_user_id: str,
+    full_name: str,
+    phone: str,
+    appeal_text: str,
+    source_messenger: str = "max",
+    source_user_id: str | None = None,
+    source_chat_id: str | None = None,
+    source_display_name: str | None = None,
+) -> int:
+    source = normalize_source_messenger(source_messenger, default="max")
     return execute(
-        "INSERT INTO appeals (max_user_id, full_name, phone, appeal_text, status, created_at) VALUES (?, ?, ?, ?, 'new', ?)",
-        (max_user_id, full_name, phone, appeal_text, now_iso()),
+        """
+        INSERT INTO appeals
+        (max_user_id, full_name, phone, appeal_text, status, created_at,
+         source_messenger, source_user_id, source_chat_id, source_display_name)
+        VALUES (?, ?, ?, ?, 'new', ?, ?, ?, ?, ?)
+        """,
+        (max_user_id, full_name, phone, appeal_text, now_iso(), source, source_user_id or max_user_id, source_chat_id, source_display_name),
     )
 
 
@@ -1025,9 +1128,26 @@ def _archive_where(view: str, alias: str = "") -> str:
     return f"COALESCE({prefix}is_archived, 0) = 0"
 
 
-def list_applications(view: str = "active", vacancy_id: int | None = None) -> list[dict[str, Any]]:
+def _source_where(source: str, alias: str = "") -> tuple[str, tuple[Any, ...]]:
+    selected = str(source or "all").strip().lower()
+    prefix = f"{alias}." if alias else ""
+    if selected == "all" or selected not in SOURCE_FILTERS:
+        return "1 = 1", ()
+    if selected == "unknown":
+        return (
+            f"({prefix}source_messenger IS NULL OR TRIM({prefix}source_messenger) = '' "
+            f"OR LOWER({prefix}source_messenger) NOT IN ('max', 'telegram', 'web'))",
+            (),
+        )
+    return f"LOWER(COALESCE({prefix}source_messenger, 'unknown')) = ?", (selected,)
+
+
+def list_applications(view: str = "active", vacancy_id: int | None = None, source: str = "all") -> list[dict[str, Any]]:
     conditions = [_archive_where(view)]
     params: list[Any] = []
+    source_condition, source_params = _source_where(source)
+    conditions.append(source_condition)
+    params.extend(source_params)
     if vacancy_id:
         conditions.append("vacancy_id = ?")
         params.append(vacancy_id)
@@ -1035,12 +1155,14 @@ def list_applications(view: str = "active", vacancy_id: int | None = None) -> li
     return fetch_all(f"SELECT * FROM applications {where} ORDER BY id DESC", tuple(params))
 
 
-def list_questions(view: str = "active") -> list[dict[str, Any]]:
-    return fetch_all(f"SELECT * FROM questions WHERE {_archive_where(view)} ORDER BY id DESC")
+def list_questions(view: str = "active", source: str = "all") -> list[dict[str, Any]]:
+    source_condition, source_params = _source_where(source)
+    return fetch_all(f"SELECT * FROM questions WHERE {_archive_where(view)} AND {source_condition} ORDER BY id DESC", source_params)
 
 
-def list_appeals(view: str = "active") -> list[dict[str, Any]]:
-    return fetch_all(f"SELECT * FROM appeals WHERE {_archive_where(view)} ORDER BY id DESC")
+def list_appeals(view: str = "active", source: str = "all") -> list[dict[str, Any]]:
+    source_condition, source_params = _source_where(source)
+    return fetch_all(f"SELECT * FROM appeals WHERE {_archive_where(view)} AND {source_condition} ORDER BY id DESC", source_params)
 
 
 def update_status(table: str, item_id: int, status: str) -> None:

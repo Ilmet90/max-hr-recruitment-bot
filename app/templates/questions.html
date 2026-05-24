@@ -5,18 +5,30 @@
 </div>
 
 <div class="actions">
-  <a class="button{% if view == 'active' %} secondary{% endif %}" href="/admin/questions?view=active">{{ t("applications.view_active", "Активные") }}</a>
-  <a class="button{% if view == 'archive' %} secondary{% endif %}" href="/admin/questions?view=archive">{{ t("applications.view_archive", "Архив") }}</a>
-  <a class="button{% if view == 'all' %} secondary{% endif %}" href="/admin/questions?view=all">{{ t("applications.view_all", "Все") }}</a>
+  <a class="button{% if view == 'active' %} secondary{% endif %}" href="/admin/questions?view=active&source={{ source_filter }}">{{ t("applications.view_active", "Активные") }}</a>
+  <a class="button{% if view == 'archive' %} secondary{% endif %}" href="/admin/questions?view=archive&source={{ source_filter }}">{{ t("applications.view_archive", "Архив") }}</a>
+  <a class="button{% if view == 'all' %} secondary{% endif %}" href="/admin/questions?view=all&source={{ source_filter }}">{{ t("applications.view_all", "Все") }}</a>
+  <form class="status-form" method="get" action="/admin/questions">
+    <input type="hidden" name="view" value="{{ view }}">
+    <label>{{ t("source.filter", "Источник") }}
+      <select name="source" onchange="this.form.submit()">
+        {% for source in source_options %}
+          <option value="{{ source }}" {% if source == source_filter %}selected{% endif %}>{{ source_filter_label(source) }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <noscript><button type="submit">{{ t("common.filter", "Фильтр") }}</button></noscript>
+  </form>
 </div>
 
 <table>
-  <thead><tr><th>ID</th><th>{{ t("questions.created_at", "Дата") }}</th><th>{{ t("questions.question", "Вопрос") }}</th><th>{{ t("questions.sender", "Контакт") }}</th><th>{{ t("questions.status", "Статус") }}</th><th>{{ t("common.archive", "Архив") }}</th><th>{{ t("questions.actions", "Действия") }}</th></tr></thead>
+  <thead><tr><th>ID</th><th>{{ t("questions.created_at", "Дата") }}</th><th>{{ t("questions.source", "Источник") }}</th><th>{{ t("questions.question", "Вопрос") }}</th><th>{{ t("questions.sender", "Контакт") }}</th><th>{{ t("questions.status", "Статус") }}</th><th>{{ t("common.archive", "Архив") }}</th><th>{{ t("questions.actions", "Действия") }}</th></tr></thead>
   <tbody>
   {% for item in items %}
     <tr>
       <td>{{ item.id }}</td>
       <td>{{ item.created_at }}</td>
+      <td>{{ source_messenger_label(item.source_messenger) }}</td>
       <td>{{ item.question_text }}</td>
       <td>{{ item.contact }}</td>
       <td>
@@ -39,7 +51,7 @@
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="7">{{ t("questions.empty", "Вопросов нет.") }}</td></tr>
+    <tr><td colspan="8">{{ t("questions.empty", "Вопросов нет.") }}</td></tr>
   {% endfor %}
   </tbody>
 </table>
