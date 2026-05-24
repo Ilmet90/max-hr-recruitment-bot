@@ -1,19 +1,19 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Фотографии условий службы</h1>
-<p class="lead">Эти фотографии доступны внешним пользователям в MAX-боте по кнопке “Условия службы” → “Просмотреть фотографии”. Фотографии можно разложить по альбомам.</p>
+<h1>{{ t("photos.title", "Фотографии условий службы") }}</h1>
+<p class="lead">{{ t("photos.lead", "Эти фотографии доступны внешним пользователям в MAX-боте по кнопке “Условия службы” → “Просмотреть фотографии”. Фотографии можно разложить по альбомам.") }}</p>
 
 {% if message %}<p class="notice">{{ message }}</p>{% endif %}
 {% if error %}<p class="alert">{{ error }}</p>{% endif %}
 
 <section class="panel">
-  <h2>Альбомы</h2>
+  <h2>{{ t("photos.albums", "Альбомы") }}</h2>
   <form class="form album-form" method="post" action="/admin/photo-albums/new">
-    <label>Название альбома<input name="title" required placeholder="Например: Фотографии со службы"></label>
-    <label>Описание<input name="description" placeholder="Краткое пояснение для сотрудников"></label>
-    <label>Порядок<input name="sort_order" type="number" value="100"></label>
-    <label class="check"><input name="is_active" type="checkbox" value="1" checked> Активен</label>
-    <button type="submit">Добавить альбом</button>
+    <label>{{ t("photos.album_title", "Название альбома") }}<input name="title" required placeholder="{{ t("photos.album_title_placeholder", "Например: Фотографии со службы") }}"></label>
+    <label>{{ t("photos.description", "Описание") }}<input name="description" placeholder="{{ t("photos.description_placeholder", "Краткое пояснение для сотрудников") }}"></label>
+    <label>{{ t("photos.sort_order", "Порядок") }}<input name="sort_order" type="number" value="100"></label>
+    <label class="check"><input name="is_active" type="checkbox" value="1" checked> {{ t("statuses.active", "Активен") }}</label>
+    <button type="submit">{{ t("photos.add_album", "Добавить альбом") }}</button>
   </form>
 
   <div class="album-list">
@@ -22,48 +22,48 @@
         <form class="form album-edit-form" method="post" action="/admin/photo-albums/{{ album.id }}/edit">
           <div>
             <strong>#{{ album.id }}</strong>
-            <span class="badge">{{ "активен" if album.is_active else "отключён" }}</span>
-            <span class="small">Фото: {{ album.photo_count }}</span>
+            <span class="badge">{{ t("statuses.active", "активен") if album.is_active else t("statuses.disabled", "отключён") }}</span>
+            <span class="small">{{ t("photos.photo_count", "Фото") }}: {{ album.photo_count }}</span>
           </div>
-          <label>Название<input name="title" value="{{ album.title }}" required></label>
-          <label>Описание<input name="description" value="{{ album.description or '' }}"></label>
-          <label>Порядок<input name="sort_order" type="number" value="{{ album.sort_order }}"></label>
-          <label class="check"><input name="is_active" type="checkbox" value="1" {% if album.is_active %}checked{% endif %}> Активен</label>
+          <label>{{ t("photos.title_field", "Название") }}<input name="title" value="{{ album.title }}" required></label>
+          <label>{{ t("photos.description", "Описание") }}<input name="description" value="{{ album.description or '' }}"></label>
+          <label>{{ t("photos.sort_order", "Порядок") }}<input name="sort_order" type="number" value="{{ album.sort_order }}"></label>
+          <label class="check"><input name="is_active" type="checkbox" value="1" {% if album.is_active %}checked{% endif %}> {{ t("statuses.active", "Активен") }}</label>
           <div class="actions">
-            <button type="submit">Сохранить</button>
+            <button type="submit">{{ t("common.save", "Сохранить") }}</button>
           </div>
         </form>
           <div class="actions">
-            <form method="post" action="/admin/photo-albums/{{ album.id }}/toggle"><button>{{ "Отключить" if album.is_active else "Включить" }}</button></form>
-            <form method="post" action="/admin/photo-albums/{{ album.id }}/delete" onsubmit="return confirm('Удалить альбом?')"><button class="danger">Удалить</button></form>
+            <form method="post" action="/admin/photo-albums/{{ album.id }}/toggle"><button>{{ t("actions.disable", "Отключить") if album.is_active else t("actions.enable", "Включить") }}</button></form>
+            <form method="post" action="/admin/photo-albums/{{ album.id }}/delete" onsubmit="return confirm('{{ t("photos.album_delete_confirm", "Удалить альбом?") }}')"><button class="danger">{{ t("actions.delete", "Удалить") }}</button></form>
           </div>
       </article>
     {% else %}
-      <p class="small">Альбомов пока нет. При загрузке фото будет создан общий альбом.</p>
+      <p class="small">{{ t("photos.no_albums", "Альбомов пока нет. При загрузке фото будет создан общий альбом.") }}</p>
     {% endfor %}
   </div>
 </section>
 
 <section class="panel">
-  <h2>Загрузить фотографию</h2>
+  <h2>{{ t("photos.upload_photo", "Загрузить фотографию") }}</h2>
   <form class="form photo-upload-form" method="post" action="/admin/photos" enctype="multipart/form-data">
-    <label>Альбом
+    <label>{{ t("photos.album", "Альбом") }}
       <select name="album_id" required>
         {% for album in albums %}
           <option value="{{ album.id }}">{{ album.title }}</option>
         {% endfor %}
       </select>
     </label>
-    <label>Файл JPG/PNG/WebP<input name="photo" type="file" accept=".jpg,.jpeg,.png,.webp" required></label>
-    <label>Подпись<input name="caption"></label>
-    <label>Порядок<input name="sort_order" type="number" value="100"></label>
-    <label class="check"><input name="is_active" type="checkbox" value="1" checked> Активна</label>
-    <button type="submit">Загрузить</button>
+    <label>{{ t("photos.file", "Файл JPG/PNG/WebP") }}<input name="photo" type="file" accept=".jpg,.jpeg,.png,.webp" required></label>
+    <label>{{ t("photos.caption", "Подпись") }}<input name="caption"></label>
+    <label>{{ t("photos.sort_order", "Порядок") }}<input name="sort_order" type="number" value="100"></label>
+    <label class="check"><input name="is_active" type="checkbox" value="1" checked> {{ t("statuses.active", "Активна") }}</label>
+    <button type="submit">{{ t("photos.upload", "Загрузить") }}</button>
   </form>
 </section>
 
 <section class="panel">
-  <h2>Фотографии</h2>
+  <h2>{{ t("photos.photos", "Фотографии") }}</h2>
   <div class="photo-list">
     {% for photo in items %}
       <article class="photo-row">
@@ -71,30 +71,30 @@
         <form class="form photo-edit-form" method="post" action="/admin/photos/{{ photo.id }}/edit">
           <div>
             <strong>#{{ photo.id }}</strong>
-            <span class="badge">{{ "активна" if photo.is_active else "выключена" }}</span>
-            <span class="small">Файл: {{ photo.original_name or photo.filename }}</span>
+            <span class="badge">{{ t("statuses.active", "активна") if photo.is_active else t("statuses.disabled", "выключена") }}</span>
+            <span class="small">{{ t("photos.file_label", "Файл") }}: {{ photo.original_name or photo.filename }}</span>
           </div>
-          <label>Подпись<input name="caption" value="{{ photo.caption or '' }}"></label>
-          <label>Альбом
+          <label>{{ t("photos.caption", "Подпись") }}<input name="caption" value="{{ photo.caption or '' }}"></label>
+          <label>{{ t("photos.album", "Альбом") }}
             <select name="album_id" required>
               {% for album in albums %}
                 <option value="{{ album.id }}" {% if album.id == photo.album_id %}selected{% endif %}>{{ album.title }}</option>
               {% endfor %}
             </select>
           </label>
-          <label>Порядок<input name="sort_order" type="number" value="{{ photo.sort_order }}"></label>
-          <label class="check"><input name="is_active" type="checkbox" value="1" {% if photo.is_active %}checked{% endif %}> Активна</label>
+          <label>{{ t("photos.sort_order", "Порядок") }}<input name="sort_order" type="number" value="{{ photo.sort_order }}"></label>
+          <label class="check"><input name="is_active" type="checkbox" value="1" {% if photo.is_active %}checked{% endif %}> {{ t("statuses.active", "Активна") }}</label>
           <div class="actions">
-            <button type="submit">Сохранить</button>
+            <button type="submit">{{ t("common.save", "Сохранить") }}</button>
           </div>
         </form>
           <div class="actions">
-            <form method="post" action="/admin/photos/{{ photo.id }}/toggle"><button>{{ "Выключить" if photo.is_active else "Включить" }}</button></form>
-            <form method="post" action="/admin/photos/{{ photo.id }}/delete" onsubmit="return confirm('Удалить фото?')"><button class="danger">Удалить</button></form>
+            <form method="post" action="/admin/photos/{{ photo.id }}/toggle"><button>{{ t("actions.disable", "Выключить") if photo.is_active else t("actions.enable", "Включить") }}</button></form>
+            <form method="post" action="/admin/photos/{{ photo.id }}/delete" onsubmit="return confirm('{{ t("photos.photo_delete_confirm", "Удалить фото?") }}')"><button class="danger">{{ t("actions.delete", "Удалить") }}</button></form>
           </div>
       </article>
     {% else %}
-      <p class="small">Фотографий пока нет.</p>
+      <p class="small">{{ t("photos.no_photos", "Фотографий пока нет.") }}</p>
     {% endfor %}
   </div>
 </section>

@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="ru">
+<html lang="{{ ui_lang or 'ru' }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ title or org_settings.web_admin_title }}</title>
+  <title>{{ title or web_admin_title }}</title>
   <link rel="stylesheet" href="/static/style.css">
   <style>
     :root {
@@ -15,30 +15,30 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/admin">{{ org_settings.web_admin_header }}</a>
+    <a class="brand" href="/admin">{{ web_admin_header }}</a>
     <nav>
-      <a href="/admin/vacancies">Вакансии</a>
-      <a href="/admin/service">Условия</a>
-      <a href="/admin/photos">Фото</a>
-      <a href="/admin/contacts">Контакты</a>
-      <a href="/admin/applications">Отклики</a>
-      <a href="/admin/questions">Вопросы</a>
-      <a href="/admin/appeals">Сообщения</a>
-      <a href="/admin/admins">Администраторы</a>
+      <a href="/admin/vacancies">{{ t("nav.vacancies", "Вакансии") }}</a>
+      <a href="/admin/service">{{ t("nav.service", "Условия") }}</a>
+      <a href="/admin/photos">{{ t("nav.photos", "Фото") }}</a>
+      <a href="/admin/contacts">{{ t("nav.contacts", "Контакты") }}</a>
+      <a href="/admin/applications">{{ t("nav.applications", "Отклики") }}</a>
+      <a href="/admin/questions">{{ t("nav.questions", "Вопросы") }}</a>
+      <a href="/admin/appeals">{{ t("nav.appeals", "Сообщения") }}</a>
+      <a href="/admin/admins">{{ t("nav.admins", "Администраторы") }}</a>
       {% if has_head_rights %}
-        <a href="/admin/settings">Настройки</a>
+        <a href="/admin/settings">{{ t("nav.settings", "Настройки") }}</a>
       {% endif %}
       {% if is_superadmin %}
-        <a href="/admin/settings/organization">Настройки организации</a>
+        <a href="/admin/settings/organization">{{ t("nav.organization_settings", "Настройки организации") }}</a>
       {% endif %}
-      <a href="/admin/about">О программе</a>
-      <a href="/admin/profile">Мой профиль</a>
-      <a class="logout-link" href="/admin/logout">Выйти</a>
+      <a href="/admin/about">{{ t("nav.about", "О программе") }}</a>
+      <a href="/admin/profile">{{ t("nav.profile", "Мой профиль") }}</a>
+      <a class="logout-link" href="/admin/logout">{{ t("nav.logout", "Выйти") }}</a>
     </nav>
   </header>
   <main class="container">
     {% if current_admin and current_admin.must_change_password %}
-      <p class="alert">Вы используете временный пароль. Рекомендуется сменить пароль в разделе «Мой профиль».</p>
+      <p class="alert">{{ t("profile.temporary_password_warning", "Вы используете временный пароль. Рекомендуется сменить пароль в разделе «Мой профиль».") }}</p>
     {% endif %}
     {% block content %}{% endblock %}
   </main>

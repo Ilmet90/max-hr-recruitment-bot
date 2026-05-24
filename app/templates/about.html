@@ -1,45 +1,45 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>О программе</h1>
+<h1>{{ t("about.title", "О программе") }}</h1>
 {% for message in messages or [] %}<p class="notice">{{ message }}</p>{% endfor %}
 {% for error in errors or [] %}<p class="alert">{{ error }}</p>{% endfor %}
 
 <section class="panel">
-  <h2>MAX HR Recruitment Bot</h2>
-  <p><strong>Организация:</strong> {{ org_settings.organization_full_name }}</p>
-  <p><strong>Версия:</strong> {{ info.version }}</p>
-  <p><strong>Установленный commit:</strong> {{ info.installed_commit }}</p>
+  <h2>{{ t("app.product_name", "MAX HR Recruitment Bot") }}</h2>
+  <p><strong>{{ t("about.organization", "Организация") }}:</strong> {{ org_settings.organization_full_name }}</p>
+  <p><strong>{{ t("about.version", "Версия") }}:</strong> {{ info.version }}</p>
+  <p><strong>{{ t("about.installed_commit", "Установленный commit") }}:</strong> {{ info.installed_commit }}</p>
   {% if can_maintain %}
-    <p><strong>GitHub-репозиторий:</strong> {{ info.repo_url }}</p>
-    <p><strong>Ветка:</strong> {{ info.branch }}</p>
-    <p><strong>Последний commit в GitHub:</strong> {{ info.latest_commit or "не получен" }}</p>
-    <p><strong>Статус:</strong> {{ info.message }}</p>
-    <p><strong>Последнее обновление:</strong> {{ info.update_last_at or "нет данных" }}</p>
+    <p><strong>{{ t("about.github_repo", "GitHub-репозиторий") }}:</strong> {{ info.repo_url }}</p>
+    <p><strong>{{ t("about.branch", "Ветка") }}:</strong> {{ info.branch }}</p>
+    <p><strong>{{ t("about.latest_commit", "Последний commit в GitHub") }}:</strong> {{ info.latest_commit or t("about.latest_commit_missing", "не получен") }}</p>
+    <p><strong>{{ t("about.status", "Статус") }}:</strong> {{ t("about.status_message." ~ info.status, info.message) }}</p>
+    <p><strong>{{ t("about.update_last_at", "Последнее обновление") }}:</strong> {{ info.update_last_at or t("about.no_data", "нет данных") }}</p>
   {% else %}
-    <p class="small">Для вашей роли доступна только информация о версии.</p>
+    <p class="small">{{ t("about.version_only", "Для вашей роли доступна только информация о версии.") }}</p>
   {% endif %}
 </section>
 
 {% if can_maintain %}
   <section class="panel">
-    <h2>Обслуживание</h2>
+    <h2>{{ t("about.maintenance", "Обслуживание") }}</h2>
     <p class="small">
-      Для обновления и перезапуска служб из web-панели управления выполните на сервере один раз:
+      {{ t("about.maintenance_help", "Для обновления и перезапуска служб из web-панели управления выполните на сервере один раз:") }}
       <code>{{ maintenance_sudoers_command }}</code>.
-      Если права не настроены, обновление не начнётся и службы не будут остановлены.
+      {{ t("about.maintenance_sudoers_hint", "Если права не настроены, обновление не начнётся и службы не будут остановлены.") }}
     </p>
     <div class="actions">
       <form method="post" action="/admin/about/check-updates">
-        <button>Проверить обновления</button>
+        <button>{{ t("about.check_updates", "Проверить обновления") }}</button>
       </form>
-      <form method="post" action="/admin/about/update" onsubmit="return confirm('Будет выполнено обновление кода из GitHub. База данных, .env, логи и загруженные фотографии будут сохранены. Продолжить?')">
-        <button>Обновить из GitHub</button>
+      <form method="post" action="/admin/about/update" onsubmit="return confirm('{{ t("about.confirm_update", "Будет выполнено обновление кода из GitHub. База данных, .env, логи и загруженные фотографии будут сохранены. Продолжить?") }}')">
+        <button>{{ t("about.update_from_github", "Обновить из GitHub") }}</button>
       </form>
-      <form method="post" action="/admin/about/restart-admin" onsubmit="return confirm('Web-панель управления будет перезапущена. Продолжить?')">
-        <button>Перезапустить web-панель управления</button>
+      <form method="post" action="/admin/about/restart-admin" onsubmit="return confirm('{{ t("about.confirm_restart_admin", "Web-панель управления будет перезапущена. Продолжить?") }}')">
+        <button>{{ t("about.restart_admin", "Перезапустить web-панель управления") }}</button>
       </form>
-      <form method="post" action="/admin/about/restart-bot" onsubmit="return confirm('MAX-бот будет перезапущен. Продолжить?')">
-        <button>Перезапустить MAX-бота</button>
+      <form method="post" action="/admin/about/restart-bot" onsubmit="return confirm('{{ t("about.confirm_restart_bot", "MAX-бот будет перезапущен. Продолжить?") }}')">
+        <button>{{ t("about.restart_bot", "Перезапустить MAX-бота") }}</button>
       </form>
     </div>
   </section>
@@ -47,7 +47,7 @@
 
 {% if command_output %}
   <section class="panel">
-    <h2>Вывод команды</h2>
+    <h2>{{ t("about.command_output", "Вывод команды") }}</h2>
     <pre class="log-output">{{ command_output }}</pre>
   </section>
 {% endif %}

@@ -1,46 +1,62 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Настройки организации</h1>
+<h1>{{ t("organization.title", "Настройки организации") }}</h1>
 {% for message in messages or [] %}<p class="notice">{{ message }}</p>{% endfor %}
 {% for error in errors or [] %}<p class="alert">{{ error }}</p>{% endfor %}
 
 <form class="form" method="post" action="/admin/settings/organization">
   <section class="panel">
-    <h2>Основные сведения</h2>
-    <label>Полное название учреждения<input name="organization_full_name" value="{{ settings.organization_full_name }}" required></label>
-    <label>Краткое название<input name="organization_short_name" value="{{ settings.organization_short_name }}" required></label>
-    <label>Вышестоящий орган<input name="parent_organization" value="{{ settings.parent_organization }}"></label>
-    <label>Регион<input name="organization_region" value="{{ settings.organization_region }}"></label>
-    <label>Название сообщества/канала<input name="community_name" value="{{ settings.community_name }}"></label>
-    <label>Название бота<input name="bot_display_name" value="{{ settings.bot_display_name }}"></label>
-    <label>Подразделение, работающее с откликами<input name="hr_department_name" value="{{ settings.hr_department_name }}"></label>
+    <h2>{{ t("organization.main_info", "Основные сведения") }}</h2>
+    <label>{{ t("organization.full_name", "Полное название учреждения") }}<input name="organization_full_name" value="{{ settings.organization_full_name }}" required></label>
+    <label>{{ t("organization.short_name", "Краткое название") }}<input name="organization_short_name" value="{{ settings.organization_short_name }}" required></label>
+    <label>{{ t("organization.parent", "Вышестоящий орган") }}<input name="parent_organization" value="{{ settings.parent_organization }}"></label>
+    <label>{{ t("organization.region", "Регион") }}<input name="organization_region" value="{{ settings.organization_region }}"></label>
+    <label>{{ t("organization.community_name", "Название сообщества/канала") }}<input name="community_name" value="{{ settings.community_name }}"></label>
+    <label>{{ t("organization.bot_display_name", "Название бота") }}<input name="bot_display_name" value="{{ settings.bot_display_name }}"></label>
+    <label>{{ t("organization.hr_department_name", "Подразделение, работающее с откликами") }}<input name="hr_department_name" value="{{ settings.hr_department_name }}"></label>
   </section>
 
   <section class="panel">
-    <h2>Тексты для кандидатов</h2>
-    <label>Заголовок приветствия<input name="public_welcome_title" value="{{ settings.public_welcome_title }}"></label>
-    <label>Приветственный текст<textarea name="public_welcome_text">{{ settings.public_welcome_text }}</textarea></label>
-    <label>Текст перед кнопками меню<input name="public_menu_hint" value="{{ settings.public_menu_hint }}"></label>
-    <label>Текст после успешного отклика<textarea name="application_success_text">{{ settings.application_success_text }}</textarea></label>
-    <label>Текст после принятия вопроса<textarea name="question_success_text">{{ settings.question_success_text }}</textarea></label>
-    <label>Текст после принятия сообщения<textarea name="appeal_success_text">{{ settings.appeal_success_text }}</textarea></label>
-    <label>Предупреждение о персональных данных<textarea name="personal_data_warning">{{ settings.personal_data_warning }}</textarea></label>
-    <label>Общий текст контактов<textarea name="contacts_public_text">{{ settings.contacts_public_text }}</textarea></label>
+    <h2>{{ t("organization.candidate_texts", "Тексты для кандидатов") }}</h2>
+    <label>{{ t("organization.public_welcome_title", "Заголовок приветствия") }}<input name="public_welcome_title" value="{{ settings.public_welcome_title }}"></label>
+    <label>{{ t("organization.public_welcome_text", "Приветственный текст") }}<textarea name="public_welcome_text">{{ settings.public_welcome_text }}</textarea></label>
+    <label>{{ t("organization.public_menu_hint", "Текст перед кнопками меню") }}<input name="public_menu_hint" value="{{ settings.public_menu_hint }}"></label>
+    <label>{{ t("organization.application_success_text", "Текст после успешного отклика") }}<textarea name="application_success_text">{{ settings.application_success_text }}</textarea></label>
+    <label>{{ t("organization.question_success_text", "Текст после принятия вопроса") }}<textarea name="question_success_text">{{ settings.question_success_text }}</textarea></label>
+    <label>{{ t("organization.appeal_success_text", "Текст после принятия сообщения") }}<textarea name="appeal_success_text">{{ settings.appeal_success_text }}</textarea></label>
+    <label>{{ t("organization.personal_data_warning", "Предупреждение о персональных данных") }}<textarea name="personal_data_warning">{{ settings.personal_data_warning }}</textarea></label>
+    <label>{{ t("organization.contacts_public_text", "Общий текст контактов") }}<textarea name="contacts_public_text">{{ settings.contacts_public_text }}</textarea></label>
   </section>
 
   <section class="panel">
-    <h2>Web-интерфейс</h2>
-    <label>Заголовок web-панели управления<input name="web_admin_title" value="{{ settings.web_admin_title }}"></label>
-    <label>Заголовок в шапке<input name="web_admin_header" value="{{ settings.web_admin_header }}"></label>
+    <h2>{{ t("settings.interface", "Web-интерфейс") }}</h2>
+    <label>{{ t("organization.web_admin_title", "Заголовок web-панели управления") }}<input name="web_admin_title" value="{{ settings.web_admin_title }}"></label>
+    <label>{{ t("organization.web_admin_header", "Заголовок в шапке") }}<input name="web_admin_header" value="{{ settings.web_admin_header }}"></label>
+    <label>{{ t("organization.web_interface_language", "Язык web-панели по умолчанию") }}
+      <select name="web_interface_language">
+        {% for locale in supported_locales %}
+          <option value="{{ locale }}" {% if settings.web_interface_language == locale %}selected{% endif %}>{{ locale }} — {{ locale_label(locale) }}</option>
+        {% endfor %}
+      </select>
+      <span class="small">{{ t("organization.web_interface_language_help", "Влияет на интерфейс панели управления, если пользователь не выбрал язык вручную.") }}</span>
+    </label>
+    <label>{{ t("organization.bot_public_language", "Язык публичного бота по умолчанию") }}
+      <select name="bot_public_language">
+        {% for locale in supported_locales %}
+          <option value="{{ locale }}" {% if settings.bot_public_language == locale %}selected{% endif %}>{{ locale }} — {{ locale_label(locale) }}</option>
+        {% endfor %}
+      </select>
+      <span class="small">{{ t("organization.bot_public_language_help", "Подготовлено для будущей локализации сообщений и кнопок бота.") }}</span>
+    </label>
   </section>
 
   <section class="panel">
-    <h2>Цветовое оформление</h2>
-    <label>Основной цвет<input name="theme_primary_color" type="color" value="{{ settings.theme_primary_color }}"></label>
-    <label>Вторичный цвет<input name="theme_secondary_color" type="color" value="{{ settings.theme_secondary_color }}"></label>
-    <label>Акцентный цвет<input name="theme_accent_color" type="color" value="{{ settings.theme_accent_color }}"></label>
+    <h2>{{ t("organization.theme", "Цветовое оформление") }}</h2>
+    <label>{{ t("organization.theme_primary_color", "Основной цвет") }}<input name="theme_primary_color" type="color" value="{{ settings.theme_primary_color }}"></label>
+    <label>{{ t("organization.theme_secondary_color", "Вторичный цвет") }}<input name="theme_secondary_color" type="color" value="{{ settings.theme_secondary_color }}"></label>
+    <label>{{ t("organization.theme_accent_color", "Акцентный цвет") }}<input name="theme_accent_color" type="color" value="{{ settings.theme_accent_color }}"></label>
   </section>
 
-  <button type="submit">Сохранить настройки организации</button>
+  <button type="submit">{{ t("organization.save_settings", "Сохранить настройки организации") }}</button>
 </form>
 {% endblock %}

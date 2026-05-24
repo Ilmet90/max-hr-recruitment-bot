@@ -10,7 +10,7 @@ import secrets
 import time
 import traceback
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app import db
+from app import i18n
 from app import maintenance
 from app import trudvsem_import
 from app.max_api import MaxAPI
@@ -34,8 +35,11 @@ UPLOAD_DIR = STATIC_DIR / "uploads" / "service"
 
 ALLOWED_PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 SESSION_COOKIE = "max_hr_admin"
+WEB_UI_LANG_COOKIE = "web_ui_lang"
 BOOT_SESSION_ID = secrets.token_urlsafe(16)
 SESSION_TTL_SECONDS = 8 * 60 * 60
+LANG_COOKIE_MAX_AGE = 365 * 24 * 60 * 60
+SOURCE_OPTIONS = ("all", "max", "telegram", "web", "unknown")
 
 app = FastAPI(title=db.DEFAULT_ORG_SETTINGS["web_admin_title"])
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -100,31 +104,132 @@ def expired_session_cookie() -> str:
     return f"{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=lax"
 
 
+def resolve_ui_lang(request: Request, org_settings: dict[str, str]) -> tuple[str, bool]:
+    query_lang = request.query_params.get("lang", "").strip().lower()
+    if query_lang in i18n.SUPPORTED_LOCALES:
+        return query_lang, True
+    cookie_lang = request.cookies.get(WEB_UI_LANG_COOKIE, "").strip().lower()
+    if cookie_lang in i18n.SUPPORTED_LOCALES:
+        return cookie_lang, False
+    return i18n.get_locale(org_settings), False
+
+
+def request_t(request: Request, key: str, default: str, **values: object) -> str:
+    org_settings = db.get_org_settings()
+    ui_lang, _ = resolve_ui_lang(request, org_settings)
+    text = i18n.t(key, default=default, locale=ui_lang)
+    return text.format(**values) if values else text
+
+
+DB_MESSAGE_KEYS = {
+    "Текущий пароль указан неверно.": "messages.current_password_invalid",
+    "Новый пароль должен быть не короче 8 символов.": "messages.new_password_too_short",
+    "Новый пароль и повтор не совпадают.": "messages.new_password_mismatch",
+    "Пароль главной учётной записи изменён.": "messages.superadmin_password_changed",
+    "Пароль изменён.": "messages.password_changed",
+    "Логин не может быть пустым.": "messages.login_empty",
+    "Логин может содержать буквы, цифры, точку, дефис и подчёркивание.": "messages.login_invalid",
+    "Этот логин уже занят.": "messages.login_taken",
+    "Логин обновлён.": "messages.login_updated",
+    "Пользователь не найден.": "messages.user_not_found",
+}
+
+
+def localized_db_message(request: Request, message: str) -> str:
+    key = DB_MESSAGE_KEYS.get(message)
+    return request_t(request, key, message) if key else message
+
+
 def render(request: Request, template: str, context: dict | None = None) -> HTMLResponse:
     current = current_admin(request)
     org_settings = db.get_org_settings()
+    ui_lang, should_set_lang_cookie = resolve_ui_lang(request, org_settings)
+
+    def template_t(key: str, default: str | None = None) -> str:
+        return i18n.t(key, default=default, locale=ui_lang)
+
+    display_current = current.copy() if current else None
+    if display_current and display_current.get("role") == "superadmin":
+        display_current["name"] = template_t("roles.superadmin", display_current.get("name"))
+
+    def localized_role_label(role: str | None) -> str:
+        return template_t(f"roles.{role or 'pending'}", db.role_label(role))
+
+    def localized_application_status_label(status: str | None) -> str:
+        status_key = {"done": "processed"}.get(status or "new", status or "new")
+        return template_t(f"statuses.{status_key}", db.application_status_label(status))
+
+    def localized_access_label(admin: dict) -> str:
+        if admin.get("role") == "pending" or int(admin.get("approved") or 0) == 0:
+            return template_t("statuses.pending", db.access_label(admin))
+        if admin.get("role") == "disabled" or int(admin.get("is_active") or 0) == 0:
+            return template_t("statuses.disabled", db.access_label(admin))
+        return template_t("statuses.active", db.access_label(admin))
+
+    def localized_bool_label(value: object) -> str:
+        return template_t("statuses.active", "включено") if int(value or 0) == 1 else template_t("statuses.disabled", "отключено")
+
+    def localized_source_messenger_label(value: str | None) -> str:
+        source = db.normalize_source_messenger(value, default="unknown")
+        return template_t(f"source.{source}", "Unknown")
+
+    def localized_source_filter_label(value: str | None) -> str:
+        source = str(value or "all").strip().lower()
+        if source == "all":
+            return template_t("source.all", "Все источники")
+        return localized_source_messenger_label(source)
+
+    def localized_service_info_label(key: str | None) -> str:
+        service_key = key or ""
+        return template_t(f"service.info.{service_key}", db.service_info_label(service_key))
+
+    def localized_service_info_help(key: str | None) -> str:
+        service_key = key or ""
+        return template_t(f"service.info_help.{service_key}", db.service_info_help(service_key))
+
+    def localized_standard_setting(key: str) -> str:
+        value = org_settings.get(key, "")
+        if value == db.DEFAULT_ORG_SETTINGS.get(key):
+            return template_t(f"app.{key}", value)
+        return value
+
+    web_admin_title = localized_standard_setting("web_admin_title")
+    web_admin_header = localized_standard_setting("web_admin_header")
+
     data = {
         "request": request,
-        "current_admin": current,
+        "current_admin": display_current,
         "has_head_rights": has_head_rights(request) if current else False,
         "is_superadmin": is_superadmin(request) if current else False,
         "org_settings": org_settings,
-        "title": org_settings["web_admin_title"],
-        "role_label": db.role_label,
-        "application_status_label": db.application_status_label,
-        "service_info_label": db.service_info_label,
-        "service_info_help": db.service_info_help,
-        "access_label": db.access_label,
-        "bool_label": db.bool_label,
+        "ui_lang": ui_lang,
+        "t": template_t,
+        "supported_locales": i18n.get_supported_locales(),
+        "locale_label": lambda locale: i18n.get_locale_label(locale, current_locale=ui_lang),
+        "title": web_admin_title,
+        "web_admin_title": web_admin_title,
+        "web_admin_header": web_admin_header,
+        "role_label": localized_role_label,
+        "application_status_label": localized_application_status_label,
+        "service_info_label": localized_service_info_label,
+        "service_info_help": localized_service_info_help,
+        "access_label": localized_access_label,
+        "bool_label": localized_bool_label,
+        "source_messenger_label": localized_source_messenger_label,
+        "source_filter_label": localized_source_filter_label,
+        "source_options": SOURCE_OPTIONS,
         "maintenance_sudoers_command": maintenance.sudoers_setup_command(),
     }
     if context:
         data.update(context)
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request=request,
         name=template,
         context=data,
     )
+    if should_set_lang_cookie:
+        response.set_cookie(WEB_UI_LANG_COOKIE, ui_lang, max_age=LANG_COOKIE_MAX_AGE, samesite="lax")
+    return response
 
 
 def redirect(path: str) -> RedirectResponse:
@@ -135,6 +240,18 @@ def redirect_with_notice(path: str, message: str = "", error: str = "") -> Redir
     params = {key: value for key, value in {"message": message, "error": error}.items() if value}
     suffix = f"?{urlencode(params)}" if params else ""
     return redirect(f"{path}{suffix}")
+
+
+def safe_admin_return_url(value: str | None, default: str = "/admin/login") -> str:
+    if not value:
+        return default
+    parsed = urlparse(value)
+    target = parsed.path or default
+    if parsed.query:
+        target = f"{target}?{parsed.query}"
+    if not target.startswith("/admin"):
+        return default
+    return target
 
 
 def form_checkbox(value: str | None) -> int:
@@ -248,8 +365,13 @@ def archive_view(request: Request) -> str:
     return view if view in {"active", "archive", "all"} else "active"
 
 
+def source_view(request: Request) -> str:
+    source = request.query_params.get("source", "all").strip().lower()
+    return source if source in SOURCE_OPTIONS else "all"
+
+
 def collection_query(request: Request, include_vacancy: bool = False) -> str:
-    params: dict[str, str] = {"view": archive_view(request)}
+    params: dict[str, str] = {"view": archive_view(request), "source": source_view(request)}
     vacancy_id = request.query_params.get("vacancy_id") if include_vacancy else None
     if vacancy_id:
         params["vacancy_id"] = vacancy_id
@@ -372,6 +494,19 @@ def logout() -> RedirectResponse:
     return result
 
 
+@app.get("/admin/set-language/{lang}")
+def set_language(request: Request, lang: str) -> RedirectResponse:
+    selected = lang.strip().lower() if lang.strip().lower() in i18n.SUPPORTED_LOCALES else i18n.DEFAULT_LOCALE
+    result = redirect(safe_admin_return_url(request.headers.get("referer")))
+    result.set_cookie(WEB_UI_LANG_COOKIE, selected, max_age=LANG_COOKIE_MAX_AGE, samesite="lax")
+    return result
+
+
+@app.get("/admin/set-language")
+def set_language_query(request: Request, lang: str = "") -> RedirectResponse:
+    return set_language(request, lang)
+
+
 @app.get("/admin/profile", response_class=HTMLResponse)
 def profile_page(request: Request) -> HTMLResponse:
     require_admin(request)
@@ -402,15 +537,15 @@ def profile_update(
                 None,
                 "Главная учётная запись",
             )
-            (messages if ok else errors).append(message)
+            (messages if ok else errors).append(localized_db_message(request, message))
         return render(request, "profile.html", {"messages": messages, "errors": errors})
     admin_id = int(admin["id"])
     if web_login.strip() and web_login.strip() != admin.get("web_login"):
         ok, message = db.update_admin_login(admin_id, web_login.strip(), admin_id, admin["name"])
-        (messages if ok else errors).append(message)
+        (messages if ok else errors).append(localized_db_message(request, message))
     if current_password or new_password or confirm_password:
         ok, message = db.change_admin_password(admin_id, current_password, new_password, confirm_password)
-        (messages if ok else errors).append(message)
+        (messages if ok else errors).append(localized_db_message(request, message))
     return render(request, "profile.html", {"messages": messages, "errors": errors})
 
 
@@ -433,13 +568,13 @@ def settings_admin_secret(request: Request, new_secret: str = Form(""), repeat_s
     messages: list[str] = []
     errors: list[str] = []
     if new_secret != repeat_secret:
-        errors.append("Новый код и повтор не совпадают.")
+        errors.append(request_t(request, "settings.secret_mismatch", "Новый код и повтор не совпадают."))
     elif not validate_secret_format(new_secret):
-        errors.append("Код должен быть от 4 до 32 символов: буквы, цифры, дефис или подчёркивание.")
+        errors.append(request_t(request, "settings.secret_invalid", "Код должен быть от 4 до 32 символов: буквы, цифры, дефис или подчёркивание."))
     else:
         actor_id, actor_name = actor_for_audit(request)
         db.set_admin_secret(new_secret, actor_id, actor_name)
-        messages.append("Служебный код обновлён.")
+        messages.append(request_t(request, "settings.secret_updated", "Служебный код обновлён."))
     return render(request, "settings.html", {"has_db_secret": bool(db.get_setting("admin_secret", "").strip()), "messages": messages, "errors": errors})
 
 
@@ -465,8 +600,12 @@ async def organization_settings_update(request: Request) -> HTMLResponse:
     errors: list[str] = []
     for key in db.ORG_SETTING_GROUPS["theme"]:
         if not validate_hex_color(values.get(key, "")):
-            errors.append("Цвета нужно указать в формате HEX, например #071a2f.")
+            errors.append(request_t(request, "settings.invalid_theme_color", "Цвета нужно указать в формате HEX, например #071a2f."))
             break
+    if values.get("web_interface_language") not in i18n.SUPPORTED_LOCALES:
+        errors.append(request_t(request, "settings.invalid_web_language", "Язык web-панели управления по умолчанию должен быть ru или en."))
+    if values.get("bot_public_language") not in i18n.SUPPORTED_LOCALES:
+        errors.append(request_t(request, "settings.invalid_bot_language", "Язык публичного бота по умолчанию должен быть ru или en."))
     if errors:
         return render(
             request,
@@ -475,7 +614,7 @@ async def organization_settings_update(request: Request) -> HTMLResponse:
         )
     actor_id, actor_name = actor_for_audit(request)
     db.update_org_settings(values, actor_id, actor_name)
-    messages.append("Настройки организации сохранены.")
+    messages.append(request_t(request, "settings.organization_saved", "Настройки организации сохранены."))
     return render(
         request,
         "organization_settings.html",
@@ -524,7 +663,7 @@ def about_check_updates(request: Request) -> HTMLResponse:
         {
             "info": maintenance.check_updates(),
             "can_maintain": True,
-            "messages": ["Проверка обновлений выполнена."],
+            "messages": [request_t(request, "about.check_complete", "Проверка обновлений выполнена.")],
         },
     )
 
@@ -546,8 +685,8 @@ def about_update(request: Request) -> HTMLResponse:
             },
         )
     ok, output = maintenance.run_update_script()
-    messages = ["Обновление выполнено. Службы перезапущены."] if ok else []
-    errors = [] if ok else ["Не удалось выполнить обновление."]
+    messages = [request_t(request, "about.update_success", "Обновление выполнено. Службы перезапущены.")] if ok else []
+    errors = [] if ok else [request_t(request, "about.update_failed", "Не удалось выполнить обновление.")]
     return render(
         request,
         "about.html",
@@ -646,7 +785,7 @@ def vacancies_import_trudvsem_settings(
         "vacancies_import_trudvsem.html",
         {
             "settings": db.get_trudvsem_settings(),
-            "messages": ["Настройки импорта сохранены."],
+            "messages": [request_t(request, "vacancies.import_settings_saved", "Настройки импорта сохранены.")],
             "preview_items": [],
             "import_items": [],
         },
@@ -664,11 +803,11 @@ def vacancies_import_trudvsem_preview(request: Request) -> HTMLResponse:
     except Exception:
         traceback.print_exc()
         result = {"ok": False, "count": 0, "items": []}
-        errors.append("Не удалось получить вакансии с портала Работа России. Подробности смотрите в журнале сервера.")
+        errors.append(request_t(request, "vacancies.import_fetch_failed", "Не удалось получить вакансии с портала Работа России. Подробности смотрите в журнале сервера."))
     if result.get("ok"):
-        messages.append(f"Найдено вакансий: {result.get('count', 0)}.")
+        messages.append(request_t(request, "vacancies.import_found_count", "Найдено вакансий: {count}.", count=result.get("count", 0)))
     elif not errors:
-        errors.append(result.get("error") or "Не удалось получить вакансии.")
+        errors.append(result.get("error") or request_t(request, "vacancies.import_fetch_failed_short", "Не удалось получить вакансии."))
     return render(
         request,
         "vacancies_import_trudvsem.html",
@@ -692,11 +831,17 @@ def vacancies_import_trudvsem_run(request: Request) -> HTMLResponse:
     errors = []
     if result.get("ok"):
         messages.append(
-            f"Импорт завершён. Добавлено: {result.get('added', 0)}. "
-            f"Обновлено: {result.get('updated', 0)}. Пропущено: {result.get('skipped', 0)}."
+            request_t(
+                request,
+                "vacancies.import_completed",
+                "Импорт завершён. Добавлено: {added}. Обновлено: {updated}. Пропущено: {skipped}.",
+                added=result.get("added", 0),
+                updated=result.get("updated", 0),
+                skipped=result.get("skipped", 0),
+            )
         )
     else:
-        errors.append("Не удалось выполнить импорт.")
+        errors.append(request_t(request, "vacancies.import_failed", "Не удалось выполнить импорт."))
     errors.extend(result.get("errors") or [])
     return render(
         request,
@@ -726,8 +871,13 @@ def vacancies_import_trudvsem_renormalize(request: Request) -> HTMLResponse:
         f"Обновлено: {result.get('updated', 0)}; пропущено: {result.get('skipped', 0)}",
     )
     messages = [
-        f"Переочистка завершена. Обновлено: {result.get('updated', 0)}. "
-        f"Пропущено: {result.get('skipped', 0)}."
+        request_t(
+            request,
+            "vacancies.renormalize_completed",
+            "Переочистка завершена. Обновлено: {updated}. Пропущено: {skipped}.",
+            updated=result.get("updated", 0),
+            skipped=result.get("skipped", 0),
+        )
     ]
     return render(
         request,
@@ -829,10 +979,11 @@ async def service_update(request: Request) -> RedirectResponse:
     return redirect("/admin/service")
 
 
-def safe_photo_name(original: str) -> str:
+def safe_photo_name(original: str, request: Request | None = None) -> str:
     suffix = Path(original).suffix.lower()
     if suffix not in ALLOWED_PHOTO_EXTENSIONS:
-        raise HTTPException(status_code=400, detail="Допустимы только JPG, PNG или WebP")
+        detail = request_t(request, "photos.invalid_file_type", "Допустимы только JPG, PNG или WebP") if request else "Допустимы только JPG, PNG или WebP"
+        raise HTTPException(status_code=400, detail=detail)
     digest = hashlib.sha256(f"{original}:{time.time()}".encode()).hexdigest()[:16]
     return f"{digest}{suffix}"
 
@@ -874,9 +1025,9 @@ def photo_album_create(
             }
         )
     except ValueError:
-        return redirect_with_notice("/admin/photos", error="Укажите название альбома")
+        return redirect_with_notice("/admin/photos", error=request_t(request, "photos.album_title_required", "Укажите название альбома"))
     db.audit_log(actor_id, actor_name, "photo_album_created", "service_photo_album", album_id)
-    return redirect_with_notice("/admin/photos", message="Альбом создан")
+    return redirect_with_notice("/admin/photos", message=request_t(request, "photos.album_created", "Альбом создан"))
 
 
 @app.post("/admin/photo-albums/{album_id}/edit")
@@ -901,9 +1052,9 @@ def photo_album_update(
             album_id,
         )
     except ValueError:
-        return redirect_with_notice("/admin/photos", error="Укажите название альбома")
+        return redirect_with_notice("/admin/photos", error=request_t(request, "photos.album_title_required", "Укажите название альбома"))
     db.audit_log(actor_id, actor_name, "photo_album_changed", "service_photo_album", album_id)
-    return redirect_with_notice("/admin/photos", message="Альбом обновлён")
+    return redirect_with_notice("/admin/photos", message=request_t(request, "photos.album_updated", "Альбом обновлён"))
 
 
 @app.post("/admin/photo-albums/{album_id}/toggle")
@@ -912,17 +1063,17 @@ def photo_album_toggle(request: Request, album_id: int) -> RedirectResponse:
     db.toggle_photo_album(album_id)
     actor_id, actor_name = actor_for_audit(request)
     db.audit_log(actor_id, actor_name, "photo_album_toggled", "service_photo_album", album_id)
-    return redirect_with_notice("/admin/photos", message="Статус альбома изменён")
+    return redirect_with_notice("/admin/photos", message=request_t(request, "photos.album_status_changed", "Статус альбома изменён"))
 
 
 @app.post("/admin/photo-albums/{album_id}/delete")
 def photo_album_delete(request: Request, album_id: int) -> RedirectResponse:
     require_content(request)
     if not db.delete_photo_album(album_id):
-        return redirect_with_notice("/admin/photos", error="Нельзя удалить альбом, пока в нём есть фотографии. Сначала перенесите или удалите фотографии.")
+        return redirect_with_notice("/admin/photos", error=request_t(request, "photos.album_delete_not_empty", "Нельзя удалить альбом, пока в нём есть фотографии. Сначала перенесите или удалите фотографии."))
     actor_id, actor_name = actor_for_audit(request)
     db.audit_log(actor_id, actor_name, "photo_album_deleted", "service_photo_album", album_id)
-    return redirect_with_notice("/admin/photos", message="Альбом удалён")
+    return redirect_with_notice("/admin/photos", message=request_t(request, "photos.album_deleted", "Альбом удалён"))
 
 
 @app.post("/admin/photos")
@@ -937,21 +1088,21 @@ async def photo_upload(
     require_content(request)
     album_id = album_id or db.ensure_default_photo_album()
     if not db.get_photo_album(album_id):
-        return redirect_with_notice("/admin/photos", error="Выберите существующий альбом")
-    filename = safe_photo_name(photo.filename or "photo.jpg")
+        return redirect_with_notice("/admin/photos", error=request_t(request, "photos.select_existing_album", "Выберите существующий альбом"))
+    filename = safe_photo_name(photo.filename or "photo.jpg", request)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     content = await photo.read()
     if not content:
-        raise HTTPException(status_code=400, detail="Файл пустой")
+        raise HTTPException(status_code=400, detail=request_t(request, "photos.empty_file", "Файл пустой"))
     target = UPLOAD_DIR / filename
     try:
         target.write_bytes(content)
     except OSError as exc:
-        raise HTTPException(status_code=500, detail="Не удалось сохранить файл") from exc
+        raise HTTPException(status_code=500, detail=request_t(request, "photos.save_file_failed", "Не удалось сохранить файл")) from exc
     photo_id = db.add_photo(filename, photo.filename or filename, caption, sort_order, form_checkbox(is_active), album_id)
     actor_id, actor_name = actor_for_audit(request)
     db.audit_log(actor_id, actor_name, "photo_uploaded", "service_photo", photo_id, f"album_id={album_id}; filename={filename}")
-    return redirect_with_notice("/admin/photos", message="Фотография загружена")
+    return redirect_with_notice("/admin/photos", message=request_t(request, "photos.photo_uploaded", "Фотография загружена"))
 
 
 @app.post("/admin/photos/{photo_id}/edit")
@@ -969,12 +1120,12 @@ def photo_update(
         raise HTTPException(status_code=404)
     album_id = album_id or db.ensure_default_photo_album()
     if not db.get_photo_album(album_id):
-        return redirect_with_notice("/admin/photos", error="Выберите существующий альбом")
+        return redirect_with_notice("/admin/photos", error=request_t(request, "photos.select_existing_album", "Выберите существующий альбом"))
     db.update_photo(photo_id, caption, sort_order, form_checkbox(is_active), album_id)
     actor_id, actor_name = actor_for_audit(request)
     action = "photo_moved" if int(old.get("album_id") or 0) != int(album_id) else "photo_changed"
     db.audit_log(actor_id, actor_name, action, "service_photo", photo_id, f"album_id={album_id}")
-    return redirect_with_notice("/admin/photos", message="Фотография обновлена")
+    return redirect_with_notice("/admin/photos", message=request_t(request, "photos.photo_updated", "Фотография обновлена"))
 
 
 @app.post("/admin/photos/{photo_id}/toggle")
@@ -983,7 +1134,7 @@ def photo_toggle(request: Request, photo_id: int) -> RedirectResponse:
     db.toggle_photo(photo_id)
     actor_id, actor_name = actor_for_audit(request)
     db.audit_log(actor_id, actor_name, "photo_toggled", "service_photo", photo_id)
-    return redirect_with_notice("/admin/photos", message="Статус фотографии изменён")
+    return redirect_with_notice("/admin/photos", message=request_t(request, "photos.photo_status_changed", "Статус фотографии изменён"))
 
 
 @app.post("/admin/photos/{photo_id}/delete")
@@ -998,7 +1149,7 @@ def photo_delete(request: Request, photo_id: int) -> RedirectResponse:
             pass
     actor_id, actor_name = actor_for_audit(request)
     db.audit_log(actor_id, actor_name, "photo_deleted", "service_photo", photo_id)
-    return redirect_with_notice("/admin/photos", message="Фотография удалена")
+    return redirect_with_notice("/admin/photos", message=request_t(request, "photos.photo_deleted", "Фотография удалена"))
 
 
 @app.get("/admin/contacts", response_class=HTMLResponse)
@@ -1073,6 +1224,7 @@ def contact_delete(request: Request, contact_id: int) -> RedirectResponse:
 def applications(request: Request) -> HTMLResponse:
     require_admin(request)
     view = archive_view(request)
+    source = source_view(request)
     vacancy_id_text = request.query_params.get("vacancy_id", "").strip()
     vacancy_id = int(vacancy_id_text) if vacancy_id_text.isdigit() else None
     vacancy = db.get_vacancy(vacancy_id) if vacancy_id else None
@@ -1080,12 +1232,13 @@ def applications(request: Request) -> HTMLResponse:
         request,
         "applications.html",
         {
-            "items": db.list_applications(view=view, vacancy_id=vacancy_id),
+            "items": db.list_applications(view=view, vacancy_id=vacancy_id, source=source),
             "table": "applications",
             "staff": db.active_staff(),
             "can_assign": can_assign_applications(request),
             "can_delete_permanently": can_delete_records_permanently(request),
             "view": view,
+            "source_filter": source,
             "vacancy_id": vacancy_id,
             "vacancy": vacancy,
             "return_query": collection_query(request, include_vacancy=True),
@@ -1097,13 +1250,15 @@ def applications(request: Request) -> HTMLResponse:
 def questions(request: Request) -> HTMLResponse:
     require_admin(request)
     view = archive_view(request)
+    source = source_view(request)
     return render(
         request,
         "questions.html",
         {
-            "items": db.list_questions(view=view),
+            "items": db.list_questions(view=view, source=source),
             "table": "questions",
             "view": view,
+            "source_filter": source,
             "return_query": collection_query(request),
             "can_delete_permanently": can_delete_records_permanently(request),
         },
@@ -1114,13 +1269,15 @@ def questions(request: Request) -> HTMLResponse:
 def appeals(request: Request) -> HTMLResponse:
     require_admin(request)
     view = archive_view(request)
+    source = source_view(request)
     return render(
         request,
         "appeals.html",
         {
-            "items": db.list_appeals(view=view),
+            "items": db.list_appeals(view=view, source=source),
             "table": "appeals",
             "view": view,
+            "source_filter": source,
             "return_query": collection_query(request),
             "can_delete_permanently": can_delete_records_permanently(request),
         },

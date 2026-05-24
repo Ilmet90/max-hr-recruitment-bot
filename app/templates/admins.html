@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Пользователи отдела кадров</h1>
+<h1>{{ t("admins.title", "Пользователи отдела кадров") }}</h1>
 
-<h2>Заявки на доступ</h2>
+<h2>{{ t("admins.pending_requests", "Заявки на доступ") }}</h2>
 <table>
-  <thead><tr><th>Дата заявки</th><th>Имя MAX</th><th>MAX ID</th><th>Статус</th><th>Действия</th></tr></thead>
+  <thead><tr><th>{{ t("admins.request_date", "Дата заявки") }}</th><th>{{ t("admins.max_name", "Имя MAX") }}</th><th>{{ t("admins.max_id", "MAX ID") }}</th><th>{{ t("applications.status", "Статус") }}</th><th>{{ t("admins.actions", "Действия") }}</th></tr></thead>
   <tbody>
   {% for item in items if item.role == "pending" or not item.approved %}
     <tr>
@@ -14,9 +14,9 @@
       <td>{{ access_label(item) }}</td>
       <td class="actions">
         {% if can_manage %}
-          <form method="post" action="/admin/admins/{{ item.id }}/approve"><input type="hidden" name="role" value="hr_staff"><button>Одобрить как сотрудника отдела кадров</button></form>
-          <form method="post" action="/admin/admins/{{ item.id }}/approve"><input type="hidden" name="role" value="hr_head"><button>Одобрить как начальника отдела кадров</button></form>
-          <form method="post" action="/admin/admins/{{ item.id }}/reject"><button class="danger">Отклонить</button></form>
+          <form method="post" action="/admin/admins/{{ item.id }}/approve"><input type="hidden" name="role" value="hr_staff"><button>{{ t("admins.approve_staff", "Одобрить как сотрудника отдела кадров") }}</button></form>
+          <form method="post" action="/admin/admins/{{ item.id }}/approve"><input type="hidden" name="role" value="hr_head"><button>{{ t("admins.approve_head", "Одобрить как начальника отдела кадров") }}</button></form>
+          <form method="post" action="/admin/admins/{{ item.id }}/reject"><button class="danger">{{ t("admins.reject", "Отклонить") }}</button></form>
         {% endif %}
       </td>
     </tr>
@@ -24,14 +24,14 @@
   </tbody>
 </table>
 
-<h2>Сотрудники</h2>
+<h2>{{ t("admins.staff", "Сотрудники") }}</h2>
 <table>
-  <thead><tr><th>ID</th><th>MAX</th><th>Имя</th><th>Роль</th><th>Web-логин</th><th>Доступ</th><th>Делегирование</th><th>Действия</th></tr></thead>
+  <thead><tr><th>ID</th><th>MAX</th><th>{{ t("admins.name", "Имя") }}</th><th>{{ t("admins.role", "Роль") }}</th><th>{{ t("admins.web_login", "Web-логин") }}</th><th>{{ t("admins.access", "Доступ") }}</th><th>{{ t("admins.delegation", "Делегирование") }}</th><th>{{ t("admins.actions", "Действия") }}</th></tr></thead>
   <tbody>
   {% for item in items if item.approved and item.role != "pending" %}
     <tr>
       <td>{{ item.id }}</td>
-      <td>{{ item.max_user_id }}<div class="small">chat: {{ item.chat_id or "не сохранён" }}</div></td>
+      <td>{{ item.max_user_id }}<div class="small">chat: {{ item.chat_id or t("admins.chat_not_saved", "не сохранён") }}</div></td>
       <td>{{ item.display_name }}</td>
       <td>{{ role_label(item.role) }}</td>
       <td>
@@ -39,41 +39,41 @@
         {% if can_manage %}
           <form method="post" action="/admin/admins/{{ item.id }}/login" class="status-form">
             <input name="web_login" value="{{ item.web_login or '' }}">
-            <button>Сохранить логин</button>
+            <button>{{ t("admins.save_login", "Сохранить логин") }}</button>
           </form>
         {% endif %}
       </td>
       <td class="small">
         {{ access_label(item) }}<br>
-        Управление в MAX: {{ bool_label(item.can_use_bot_admin) }}<br>
-        Уведомления: {{ bool_label(item.can_receive_notifications) }}
+        {{ t("admins.max_management", "Управление в MAX") }}: {{ bool_label(item.can_use_bot_admin) }}<br>
+        {{ t("admins.notifications", "Уведомления") }}: {{ bool_label(item.can_receive_notifications) }}
       </td>
-      <td>{% if item.delegated_until %}Временно исполняет полномочия до {{ item.delegated_until }}{% endif %}</td>
+      <td>{% if item.delegated_until %}{{ t("admins.delegated_until", "Временно исполняет полномочия до") }} {{ item.delegated_until }}{% endif %}</td>
       <td class="actions">
         {% if can_manage %}
           <form method="post" action="/admin/admins/{{ item.id }}/role">
             <select name="role">
-              <option value="hr_staff" {% if item.role == "hr_staff" %}selected{% endif %}>Сотрудник отдела кадров</option>
-              <option value="hr_head" {% if item.role == "hr_head" %}selected{% endif %}>Начальник отдела кадров</option>
+              <option value="hr_staff" {% if item.role == "hr_staff" %}selected{% endif %}>{{ t("roles.hr_staff", "Сотрудник отдела кадров") }}</option>
+              <option value="hr_head" {% if item.role == "hr_head" %}selected{% endif %}>{{ t("roles.hr_head", "Начальник отдела кадров") }}</option>
             </select>
-            <button>Изменить роль</button>
+            <button>{{ t("admins.change_role", "Изменить роль") }}</button>
           </form>
           <form method="post" action="/admin/admins/{{ item.id }}/flags">
-            <label class="check"><input type="checkbox" name="can_use_bot_admin" value="1" {% if item.can_use_bot_admin %}checked{% endif %}> Управление в MAX</label>
-            <label class="check"><input type="checkbox" name="can_receive_notifications" value="1" {% if item.can_receive_notifications %}checked{% endif %}> Уведомления</label>
-            <button>Сохранить настройки</button>
+            <label class="check"><input type="checkbox" name="can_use_bot_admin" value="1" {% if item.can_use_bot_admin %}checked{% endif %}> {{ t("admins.max_management", "Управление в MAX") }}</label>
+            <label class="check"><input type="checkbox" name="can_receive_notifications" value="1" {% if item.can_receive_notifications %}checked{% endif %}> {{ t("admins.notifications", "Уведомления") }}</label>
+            <button>{{ t("admins.save_settings", "Сохранить настройки") }}</button>
           </form>
           {% if item.id in resettable_ids %}
-            <form method="post" action="/admin/admins/{{ item.id }}/password/reset"><button>Сбросить пароль</button></form>
+            <form method="post" action="/admin/admins/{{ item.id }}/password/reset"><button>{{ t("admins.reset_password", "Сбросить пароль") }}</button></form>
           {% endif %}
           <form method="post" action="/admin/admins/{{ item.id }}/delegate">
             <input name="delegated_until" placeholder="2026-05-21 18:00:00">
-            <button>Делегировать</button>
+            <button>{{ t("admins.delegate", "Делегировать") }}</button>
           </form>
-          <form method="post" action="/admin/admins/{{ item.id }}/delegate/clear"><button>Снять делегирование</button></form>
-          <form method="post" action="/admin/admins/{{ item.id }}/delete" onsubmit="return confirm('Отключить пользователя?')"><button class="danger">Отключить доступ</button></form>
+          <form method="post" action="/admin/admins/{{ item.id }}/delegate/clear"><button>{{ t("admins.clear_delegation", "Снять делегирование") }}</button></form>
+          <form method="post" action="/admin/admins/{{ item.id }}/delete" onsubmit="return confirm('{{ t("admins.disable_confirm", "Отключить пользователя?") }}')"><button class="danger">{{ t("admins.disable", "Отключить доступ") }}</button></form>
         {% else %}
-          только просмотр
+          {{ t("admins.view_only", "только просмотр") }}
         {% endif %}
       </td>
     </tr>

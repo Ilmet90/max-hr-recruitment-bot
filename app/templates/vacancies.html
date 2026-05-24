@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="page-head">
-  <h1>Вакансии</h1>
+  <h1>{{ t("vacancies.title", "Вакансии") }}</h1>
   <div class="actions">
-    <a class="button" href="/admin/vacancies/import-trudvsem">Импорт с Работа России</a>
-    <a class="button" href="/admin/vacancies/new">Добавить</a>
+    <a class="button" href="/admin/vacancies/import-trudvsem">{{ t("vacancies.import_trudvsem", "Импорт с Работа России") }}</a>
+    <a class="button" href="/admin/vacancies/new">{{ t("vacancies.new", "Добавить вакансию") }}</a>
   </div>
 </div>
 <table>
-  <thead><tr><th>ID</th><th>Порядок</th><th>Название</th><th>Зарплата</th><th>Статус</th><th>Отклики</th><th>Действия</th></tr></thead>
+  <thead><tr><th>ID</th><th>{{ t("vacancies.sort_order", "Порядок") }}</th><th>{{ t("vacancies.position", "Название") }}</th><th>{{ t("vacancies.salary", "Зарплата") }}</th><th>{{ t("vacancies.status", "Статус") }}</th><th>{{ t("vacancies.applications", "Отклики") }}</th><th>{{ t("vacancies.actions", "Действия") }}</th></tr></thead>
   <tbody>
   {% for item in items %}
     <tr>
@@ -16,20 +16,22 @@
       <td>{{ item.sort_order }}</td>
       <td>{{ item.title }}</td>
       <td>{{ item.salary }}</td>
-      <td>{{ "активна" if item.is_active else "выключена" }}</td>
+      <td>{{ t("vacancies.active", "активна") if item.is_active else t("vacancies.disabled", "выключена") }}</td>
       {% set counts = application_counts.get(item.id, {}) %}
       <td>
-        <a href="/admin/applications?vacancy_id={{ item.id }}">Отклики: {{ counts.get("active", 0) }}</a>
+        <a href="/admin/applications?vacancy_id={{ item.id }}">{{ t("vacancies.applications", "Отклики") }}: {{ counts.get("active", 0) }}</a>
         {% if counts.get("archive", 0) %}
-          <div class="small"><a href="/admin/applications?vacancy_id={{ item.id }}&view=archive">Архив: {{ counts.get("archive", 0) }}</a></div>
+          <div class="small"><a href="/admin/applications?vacancy_id={{ item.id }}&view=archive">{{ t("vacancies.archive_count", "Архив") }}: {{ counts.get("archive", 0) }}</a></div>
         {% endif %}
       </td>
       <td class="actions">
-        <a href="/admin/vacancies/{{ item.id }}/edit">Редактировать</a>
-        <form method="post" action="/admin/vacancies/{{ item.id }}/toggle"><button>{{ "Выключить" if item.is_active else "Включить" }}</button></form>
-        <form method="post" action="/admin/vacancies/{{ item.id }}/delete" onsubmit="return confirm('Удалить вакансию?')"><button class="danger">Удалить</button></form>
+        <a href="/admin/vacancies/{{ item.id }}/edit">{{ t("actions.edit", "Редактировать") }}</a>
+        <form method="post" action="/admin/vacancies/{{ item.id }}/toggle"><button>{{ t("actions.disable", "Выключить") if item.is_active else t("actions.enable", "Включить") }}</button></form>
+        <form method="post" action="/admin/vacancies/{{ item.id }}/delete" onsubmit="return confirm('{{ t("vacancies.delete_confirm", "Удалить вакансию?") }}')"><button class="danger">{{ t("actions.delete", "Удалить") }}</button></form>
       </td>
     </tr>
+  {% else %}
+    <tr><td colspan="7">{{ t("vacancies.no_items", "Вакансий пока нет.") }}</td></tr>
   {% endfor %}
   </tbody>
 </table>

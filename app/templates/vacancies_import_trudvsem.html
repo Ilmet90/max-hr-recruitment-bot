@@ -1,52 +1,52 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="page-head">
-  <h1>Импорт с Работа России</h1>
-  <a class="button" href="/admin/vacancies">Назад к вакансиям</a>
+  <h1>{{ t("vacancies.import_trudvsem", "Импорт с Работа России") }}</h1>
+  <a class="button" href="/admin/vacancies">{{ t("vacancies.back_to_list", "Назад к вакансиям") }}</a>
 </div>
 
 {% for message in messages or [] %}<p class="notice">{{ message }}</p>{% endfor %}
 {% for error in errors or [] %}<p class="alert">{{ error }}</p>{% endfor %}
 
 <section class="panel">
-  <h2>Настройки импорта</h2>
+  <h2>{{ t("vacancies.import_settings", "Настройки импорта") }}</h2>
   <form method="post" action="/admin/vacancies/import-trudvsem/settings">
     <label class="check">
       <input type="checkbox" name="trudvsem_enabled" {% if settings.trudvsem_enabled == "1" %}checked{% endif %}>
-      Импорт включён
+      {{ t("vacancies.import_enabled", "Импорт включён") }}
     </label>
-    <label>Код работодателя на trudvsem
+    <label>{{ t("vacancies.trudvsem_company_code", "Код работодателя на trudvsem") }}
       <input name="trudvsem_company_code" value="{{ settings.trudvsem_company_code }}">
     </label>
-    <label>ИНН работодателя
+    <label>{{ t("vacancies.trudvsem_inn", "ИНН работодателя") }}
       <input name="trudvsem_inn" value="{{ settings.trudvsem_inn }}">
     </label>
-    <label>API base URL
+    <label>{{ t("vacancies.api_base_url", "API base URL") }}
       <input name="trudvsem_api_base" value="{{ settings.trudvsem_api_base }}">
     </label>
-    <p class="small">Последнее обновление: {{ settings.trudvsem_last_sync_at or "не выполнялось" }}</p>
-    <button>Сохранить настройки</button>
+    <p class="small">{{ t("vacancies.last_sync", "Последнее обновление") }}: {{ settings.trudvsem_last_sync_at or t("vacancies.not_synced", "не выполнялось") }}</p>
+    <button>{{ t("actions.save", "Сохранить") }}</button>
   </form>
 </section>
 
 <section class="panel">
-  <h2>Предпросмотр</h2>
+  <h2>{{ t("vacancies.preview", "Предпросмотр") }}</h2>
   <div class="actions">
     <form method="post" action="/admin/vacancies/import-trudvsem/preview">
-      <button>Проверить вакансии</button>
+      <button>{{ t("vacancies.check", "Проверить вакансии") }}</button>
     </form>
     {% if preview and preview.ok and preview_items %}
-      <form method="post" action="/admin/vacancies/import-trudvsem/import" onsubmit="return confirm('Импортировать найденные вакансии? Ручные вакансии не будут удалены.')">
-        <button>Импортировать найденные вакансии</button>
+      <form method="post" action="/admin/vacancies/import-trudvsem/import" onsubmit="return confirm('{{ t("vacancies.import_confirm", "Импортировать найденные вакансии? Ручные вакансии не будут удалены.") }}')">
+        <button>{{ t("vacancies.import_found", "Импортировать найденные вакансии") }}</button>
       </form>
     {% endif %}
-    <form method="post" action="/admin/vacancies/import-trudvsem/renormalize" onsubmit="return confirm('Очистить и обновить уже импортированные вакансии из сохранённого JSON?')">
-      <button>Очистить и обновить уже импортированные вакансии</button>
+    <form method="post" action="/admin/vacancies/import-trudvsem/renormalize" onsubmit="return confirm('{{ t("vacancies.renormalize_confirm", "Очистить и обновить уже импортированные вакансии из сохранённого JSON?") }}')">
+      <button>{{ t("vacancies.renormalize", "Очистить и обновить уже импортированные вакансии") }}</button>
     </form>
   </div>
   {% if preview %}
     <p class="small">
-      Endpoint: {{ preview.endpoint_type or "не определён" }}
+      Endpoint: {{ preview.endpoint_type or t("vacancies.endpoint_unknown", "не определён") }}
       {% if preview.url %}<br>{{ preview.url }}{% endif %}
     </p>
     {% for warning in preview.errors or [] %}
@@ -56,53 +56,53 @@
       <table>
         <thead>
           <tr>
-            <th>Название</th>
-            <th>Зарплата</th>
-            <th>Обязанности</th>
-            <th>Требования</th>
-            <th>Статус</th>
-            <th>Ссылка</th>
+            <th>{{ t("vacancies.position", "Название") }}</th>
+            <th>{{ t("vacancies.salary", "Зарплата") }}</th>
+            <th>{{ t("vacancies.duties", "Обязанности") }}</th>
+            <th>{{ t("vacancies.requirements", "Требования") }}</th>
+            <th>{{ t("vacancies.status", "Статус") }}</th>
+            <th>{{ t("vacancies.link", "Ссылка") }}</th>
           </tr>
         </thead>
         <tbody>
         {% for item in preview_items %}
           <tr>
-            <td>{{ item.get("title") or "Без названия" }}</td>
-            <td>{{ item.get("salary") or "не указано" }}</td>
+            <td>{{ item.get("title") or t("vacancies.unnamed", "Без названия") }}</td>
+            <td>{{ item.get("salary") or t("vacancies.not_specified", "не указано") }}</td>
             {% set duties = item.get("duties") or "" %}
             {% set requirements = item.get("requirements") or "" %}
             <td>{{ duties[:180] }}{% if duties|length > 180 %}...{% endif %}</td>
             <td>{{ requirements[:180] }}{% if requirements|length > 180 %}...{% endif %}</td>
-            <td>{{ item.get("status") or "" }}</td>
-            <td>{% if item.get("external_url") %}<a href="{{ item.get('external_url') }}" target="_blank" rel="noopener">Открыть</a>{% else %}-{% endif %}</td>
+            <td>{% if item.get("status") == "новая" %}{{ t("vacancies.preview_new", "новая") }}{% elif item.get("status") == "будет обновлена" %}{{ t("vacancies.preview_update", "будет обновлена") }}{% else %}{{ item.get("status") or "" }}{% endif %}</td>
+            <td>{% if item.get("external_url") %}<a href="{{ item.get('external_url') }}" target="_blank" rel="noopener">{{ t("actions.open", "Открыть") }}</a>{% else %}-{% endif %}</td>
           </tr>
         {% endfor %}
         </tbody>
       </table>
     {% else %}
-      <p class="small">Вакансии не найдены.</p>
+      <p class="small">{{ t("vacancies.not_found", "Вакансии не найдены.") }}</p>
     {% endif %}
   {% endif %}
 </section>
 
 {% if import_result %}
   <section class="panel">
-    <h2>Результат импорта</h2>
-    <p>Добавлено: {{ import_result.added or 0 }}</p>
-    <p>Обновлено: {{ import_result.updated or 0 }}</p>
-    <p>Пропущено: {{ import_result.skipped or 0 }}</p>
+    <h2>{{ t("vacancies.import_result", "Результат импорта") }}</h2>
+    <p>{{ t("vacancies.added", "Добавлено") }}: {{ import_result.added or 0 }}</p>
+    <p>{{ t("vacancies.updated", "Обновлено") }}: {{ import_result.updated or 0 }}</p>
+    <p>{{ t("vacancies.skipped", "Пропущено") }}: {{ import_result.skipped or 0 }}</p>
     {% if import_result.endpoint_type %}
-      <p class="small">Источник: {{ import_result.endpoint_type }}</p>
+      <p class="small">{{ t("vacancies.source", "Источник") }}: {{ import_result.endpoint_type }}</p>
     {% endif %}
     {% if import_items %}
       <table>
-        <thead><tr><th>ID</th><th>Название</th><th>Действие</th></tr></thead>
+        <thead><tr><th>ID</th><th>{{ t("vacancies.position", "Название") }}</th><th>{{ t("vacancies.action", "Действие") }}</th></tr></thead>
         <tbody>
         {% for item in import_items %}
           <tr>
             <td>{{ item.get("vacancy_id") or "" }}</td>
-            <td>{{ item.get("title") or "Без названия" }}</td>
-            <td>{{ "добавлена" if item.get("import_action") == "added" else "обновлена" }}</td>
+            <td>{{ item.get("title") or t("vacancies.unnamed", "Без названия") }}</td>
+            <td>{{ t("vacancies.added_status", "добавлена") if item.get("import_action") == "added" else t("vacancies.updated_status", "обновлена") }}</td>
           </tr>
         {% endfor %}
         </tbody>
@@ -113,9 +113,9 @@
 
 {% if renormalize_result %}
   <section class="panel">
-    <h2>Переочистка импортированных вакансий</h2>
-    <p>Обновлено: {{ renormalize_result.updated or 0 }}</p>
-    <p>Пропущено: {{ renormalize_result.skipped or 0 }}</p>
+    <h2>{{ t("vacancies.renormalize_result", "Переочистка импортированных вакансий") }}</h2>
+    <p>{{ t("vacancies.updated", "Обновлено") }}: {{ renormalize_result.updated or 0 }}</p>
+    <p>{{ t("vacancies.skipped", "Пропущено") }}: {{ renormalize_result.skipped or 0 }}</p>
     {% if renormalize_result.get("errors") %}
       <ul>
         {% for error in renormalize_result.get("errors") %}

@@ -1,32 +1,46 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Мой профиль</h1>
+<h1>{{ t("profile.title", "Мой профиль") }}</h1>
 {% for message in messages or [] %}<p class="notice">{{ message }}</p>{% endfor %}
 {% for error in errors or [] %}<p class="alert">{{ error }}</p>{% endfor %}
 
 <section class="panel">
-  <p><strong>Имя:</strong> {{ current_admin.name }}</p>
-  <p><strong>Логин:</strong> {{ current_admin.web_login }}</p>
-  <p><strong>Роль:</strong> {{ role_label(current_admin.role) }}</p>
-  <p><strong>Статус:</strong> Активен</p>
+  <p><strong>{{ t("profile.name", "Имя") }}:</strong> {{ current_admin.name }}</p>
+  <p><strong>{{ t("profile.login", "Логин") }}:</strong> {{ current_admin.web_login }}</p>
+  <p><strong>{{ t("profile.role", "Роль") }}:</strong> {{ role_label(current_admin.role) }}</p>
+  <p><strong>{{ t("profile.status", "Статус") }}:</strong> {{ t("statuses.active", "Активен") }}</p>
   {% if current_admin.delegated_until %}
-    <p><strong>Делегирование:</strong> временно исполняет полномочия до {{ current_admin.delegated_until }}</p>
+    <p><strong>{{ t("profile.delegation", "Делегирование") }}:</strong> {{ t("profile.delegated_until", "временно исполняет полномочия до") }} {{ current_admin.delegated_until }}</p>
   {% endif %}
   {% if current_admin.role == "superadmin" %}
-    <p class="small">Логин главной учётной записи задаётся в файле .env. Пароль можно изменить на этой странице.</p>
+    <p class="small">{{ t("profile.superadmin_login_help", "Логин главной учётной записи задаётся в файле .env. Пароль можно изменить на этой странице.") }}</p>
   {% endif %}
+</section>
+
+<section class="panel">
+  <h2>{{ t("profile.interface_language", "Язык интерфейса") }}</h2>
+  <p class="small">{{ t("language.interface_language", "Этот выбор сохраняется только в текущем браузере.") }}</p>
+  <form class="language-select-form" method="get" action="/admin/set-language">
+    <label for="profile-language">{{ t("language.current_language", "Текущий язык") }}</label>
+    <select id="profile-language" class="language-select" name="lang" onchange="this.form.submit()">
+      {% for locale in supported_locales %}
+        <option value="{{ locale }}" {% if locale == ui_lang %}selected{% endif %}>{{ locale_label(locale) }}</option>
+      {% endfor %}
+    </select>
+    <noscript><button type="submit">{{ t("common.save", "Сохранить") }}</button></noscript>
+  </form>
 </section>
 
 <form class="form" method="post" action="/admin/profile">
   {% if current_admin.role != "superadmin" %}
-  <h2>Смена логина</h2>
-  <label>Новый логин<input name="web_login" value="{{ current_admin.web_login }}" required></label>
+  <h2>{{ t("profile.login_change", "Смена логина") }}</h2>
+  <label>{{ t("profile.new_login", "Новый логин") }}<input name="web_login" value="{{ current_admin.web_login }}" required></label>
   {% endif %}
 
-  <h2>Смена пароля</h2>
-  <label>Текущий пароль<input type="password" name="current_password"></label>
-  <label>Новый пароль<input type="password" name="new_password"></label>
-  <label>Повтор нового пароля<input type="password" name="confirm_password"></label>
-  <button>Сохранить</button>
+  <h2>{{ t("profile.password_change", "Смена пароля") }}</h2>
+  <label>{{ t("profile.current_password", "Текущий пароль") }}<input type="password" name="current_password"></label>
+  <label>{{ t("profile.new_password", "Новый пароль") }}<input type="password" name="new_password"></label>
+  <label>{{ t("profile.confirm_password", "Повтор нового пароля") }}<input type="password" name="confirm_password"></label>
+  <button>{{ t("common.save", "Сохранить") }}</button>
 </form>
 {% endblock %}
