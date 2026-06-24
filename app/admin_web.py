@@ -530,24 +530,13 @@ def about_check_updates(request: Request) -> HTMLResponse:
 
 
 @app.post("/admin/about/update", response_class=HTMLResponse)
-def about_update(request: Request) -> HTMLResponse:
+def about_update(request: Request, target_version: str = Form("")) -> HTMLResponse:
     require_admin(request)
     if not has_head_rights(request):
         raise HTTPException(status_code=403)
-    sudoers = maintenance.check_maintenance_sudoers()
-    if not sudoers["ok"]:
-        return render(
-            request,
-            "about.html",
-            {
-                "info": maintenance.check_updates(),
-                "can_maintain": True,
-                "errors": [sudoers["message"]],
-            },
-        )
-    ok, output = maintenance.run_update_script()
-    messages = ["Обновление выполнено. Службы перезапущены."] if ok else []
-    errors = [] if ok else ["Не удалось выполнить обновление."]
+    ok, output = maintenance.run_update_script(target_version or None)
+    messages = ["Опубликованный релиз установлен. Службы перезапущены."] if ok else []
+    errors = [] if ok else ["Не удалось установить опубликованный релиз."]
     return render(
         request,
         "about.html",

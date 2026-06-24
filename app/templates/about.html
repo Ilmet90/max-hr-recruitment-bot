@@ -11,8 +11,7 @@
   <p><strong>Установленный commit:</strong> {{ info.installed_commit }}</p>
   {% if can_maintain %}
     <p><strong>GitHub-репозиторий:</strong> {{ info.repo_url }}</p>
-    <p><strong>Ветка:</strong> {{ info.branch }}</p>
-    <p><strong>Последний commit в GitHub:</strong> {{ info.latest_commit or "не получен" }}</p>
+    <p><strong>Последняя опубликованная релизная версия:</strong> {{ info.latest_release_tag or "не получена" }}</p>
     <p><strong>Статус:</strong> {{ info.message }}</p>
     <p><strong>Последнее обновление:</strong> {{ info.update_last_at or "нет данных" }}</p>
   {% else %}
@@ -23,32 +22,56 @@
 {% if can_maintain %}
   <section class="panel">
     <h2>Обслуживание</h2>
+    <p class="alert">Перед обновлением или откатом рабочего сервера рекомендуется сделать snapshot виртуальной машины.</p>
     <p class="small">
       Для обновления и перезапуска служб из web-панели управления выполните на сервере один раз:
       <code>{{ maintenance_sudoers_command }}</code>.
       Если права не настроены, обновление не начнётся и службы не будут остановлены.
     </p>
     <div class="actions">
-      <form method="post" action="/admin/about/check-updates">
-        <button>Проверить обновления</button>
-      </form>
-      <form method="post" action="/admin/about/update" onsubmit="return confirm('Будет выполнено обновление кода из GitHub. База данных, .env, логи и загруженные фотографии будут сохранены. Продолжить?')">
-        <button>Обновить из GitHub</button>
-      </form>
-      <form method="post" action="/admin/about/restart-admin" onsubmit="return confirm('Web-панель управления будет перезапущена. Продолжить?')">
-        <button>Перезапустить web-панель управления</button>
-      </form>
-      <form method="post" action="/admin/about/restart-bot" onsubmit="return confirm('MAX-бот будет перезапущен. Продолжить?')">
-        <button>Перезапустить MAX-бота</button>
-      </form>
+      <form method="post" action="/admin/about/check-updates"><button>Проверить обновления</button></form>
+      {% if info.update_available and info.latest_release_tag %}
+        <form method="post" action="/admin/about/update" onsubmit="return confirm('Будет установлен последний опубликованный GitHub Release. База данных, .env, логи и загруженные фотографии будут сохранены. Продолжить?')">
+          <input type="hidden" name="target_version" value="{{ info.latest_release_tag }}">
+          <button>Обновить до опубликованного релиза</button>
+        </form>
+      {% endif %}
+      <form method="post" action="/admin/about/restart-admin" onsubmit="return confirm('Web-панель управления будет перезапущена. Продолжить?')"><button>Перезапустить web-панель управления</button></form>
+      <form method="post" action="/admin/about/restart-bot" onsubmit="return confirm('MAX-бот будет перезапущен. Продолжить?')"><button>Перезапустить MAX-бота</button></form>
     </div>
+  </section>
+
+  <section class="panel">
+    <h2>Доступные опубликованные релизы</h2>
+    {% if info.releases %}
+      <table>
+        <thead><tr><th>Версия</th><th>Дата публикации</th><th>Действие</th></tr></thead>
+        <tbody>
+        {% for release in info.releases %}
+          <tr>
+            <td><strong>{{ release.tag_name }}</strong>{% if release.is_current %} <span class="badge">текущая</span>{% endif %}</td>
+            <td>{{ release.published_at or "не указана" }}</td>
+            <td>
+              {% if not release.is_current %}
+                <form method="post" action="/admin/about/update" onsubmit="return confirm('Будет установлена выбранная опубликованная версия. Перед продолжением рекомендуется сделать snapshot. Продолжить?')">
+                  <input type="hidden" name="target_version" value="{{ release.tag_name }}">
+                  <button>{% if release.is_older %}Откатиться до этой версии{% else %}Установить эту версию{% endif %}</button>
+                </form>
+              {% else %}Текущая версия{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% elif info.error %}
+      <p>Не удалось получить список релизов GitHub.</p>
+    {% else %}
+      <p>Опубликованные релизы GitHub не найдены.</p>
+    {% endif %}
   </section>
 {% endif %}
 
 {% if command_output %}
-  <section class="panel">
-    <h2>Вывод команды</h2>
-    <pre class="log-output">{{ command_output }}</pre>
-  </section>
+  <section class="panel"><h2>Вывод команды</h2><pre class="log-output">{{ command_output }}</pre></section>
 {% endif %}
 {% endblock %}

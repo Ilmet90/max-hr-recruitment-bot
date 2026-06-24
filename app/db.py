@@ -102,7 +102,6 @@ ORG_SETTING_GROUPS = {
 
 DEFAULT_UPDATE_SETTINGS = {
     "github_repo_url": "https://github.com/Ilmet90/max-hr-recruitment-bot.git",
-    "github_branch": "main",
     "installed_commit": "local",
     "auto_update_enabled": "1",
     "admin_service_name": "max-hr-admin.service",
@@ -591,10 +590,6 @@ def get_installed_commit() -> str:
 
 def get_github_repo_url() -> str:
     return get_setting("github_repo_url", DEFAULT_UPDATE_SETTINGS["github_repo_url"]).strip()
-
-
-def get_github_branch() -> str:
-    return get_setting("github_branch", DEFAULT_UPDATE_SETTINGS["github_branch"]).strip() or DEFAULT_UPDATE_SETTINGS["github_branch"]
 
 
 def get_admin_service_name() -> str:
