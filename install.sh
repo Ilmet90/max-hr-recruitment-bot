@@ -113,6 +113,7 @@ python3 -m venv "$INSTALL_DIR/.venv"
 echo "== Создание .env =="
 {
   write_env_line "MAX_BOT_TOKEN" "$MAX_BOT_TOKEN"
+  write_env_line "MAX_API_BASE_URL" "https://platform-api2.max.ru"
   write_env_line "ADMIN_SECRET" "$ADMIN_SECRET"
   write_env_line "WEB_ADMIN_LOGIN" "$WEB_LOGIN"
   write_env_line "WEB_ADMIN_PASSWORD" "$WEB_PASSWORD"

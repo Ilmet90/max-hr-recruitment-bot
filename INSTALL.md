@@ -92,6 +92,33 @@ http://127.0.0.1:8010
 
 Если порт занят, выберите другой свободный host-порт, например `8011` или `8080`.
 
+## MAX API endpoint и сертификат Минцифры
+
+Начиная с версии 0.2.7 по умолчанию используется `https://platform-api2.max.ru`. При необходимости адрес можно переопределить в `/opt/max-hr-recruitment-bot/.env`:
+
+```text
+MAX_API_BASE_URL=https://platform-api2.max.ru
+```
+
+Согласно уведомлению MAX, переход со старого endpoint необходимо выполнить до 19 июля.
+
+Если MAX требует сертификат Минцифры, получите файл сертификата только из официального источника MAX, Минцифры или поддержки MAX. Не используйте сертификаты со случайных сайтов.
+
+Установка сертификата в Debian:
+
+```bash
+sudo cp mincifra-root.crt /usr/local/share/ca-certificates/mincifra-root.crt
+sudo update-ca-certificates
+```
+
+После установки можно указать системный bundle для Python `requests`:
+
+```text
+REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+```
+
+Не отключайте TLS-проверку и не используйте `verify=False`.
+
 ## 8. Первичная настройка
 
 После входа в web-панель управления:

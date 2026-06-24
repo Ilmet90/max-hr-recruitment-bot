@@ -8,7 +8,7 @@ from typing import Any, Generator
 import requests
 
 
-DEFAULT_BASE_URL = "https://platform-api.max.ru"
+DEFAULT_BASE_URL = "https://platform-api2.max.ru"
 
 
 class MaxApiError(RuntimeError):

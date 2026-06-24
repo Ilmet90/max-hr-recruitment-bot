@@ -129,6 +129,39 @@ sudo systemctl start max-hr-bot.service
 sudo systemctl enable max-hr-bot.service
 ```
 
+## MAX API endpoint и сертификат Минцифры
+
+Согласно уведомлению MAX, до 19 июля необходимо перейти со старого адреса `https://platform-api.max.ru` на `https://platform-api2.max.ru`.
+
+Начиная с версии 0.2.7 бот по умолчанию использует:
+
+```text
+https://platform-api2.max.ru
+```
+
+Адрес API можно переопределить в `.env`:
+
+```text
+MAX_API_BASE_URL=https://platform-api2.max.ru
+```
+
+Если для подключения MAX требуется сертификат Минцифры, получайте его только из официального источника MAX, Минцифры или поддержки MAX. Не скачивайте сертификаты из случайных источников.
+
+Пример установки сертификата в Debian:
+
+```bash
+sudo cp mincifra-root.crt /usr/local/share/ca-certificates/mincifra-root.crt
+sudo update-ca-certificates
+```
+
+Для Python `requests` можно указать системный bundle в `.env`:
+
+```text
+REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+```
+
+TLS-проверку отключать нельзя. Не добавляйте `verify=False`.
+
 ## Команды MAX-бота
 
 - `/start` — открыть публичное меню кандидата.
@@ -283,6 +316,7 @@ sudo bash scripts/backup.sh
 
 ## История версий
 
+- 0.2.7 — обновлён MAX API endpoint: значение по умолчанию изменено на https://platform-api2.max.ru, добавлена настройка MAX_API_BASE_URL и рекомендации по сертификату Минцифры.
 - 0.2.6 — исправлена система обновления web-панели: обновления выполняются только на опубликованные GitHub Releases, обычные tags без Release и ветки main/feature/hotfix не используются.
 - 0.2.5 — восстановлен аккуратный внешний вид кликабельных статистических карточек, улучшен выбор ответственного сотрудника в MAX-боте, уточнена поддержка slash-команд.
 - 0.2.4 — статистические карточки на главной странице web-панели управления стали кликабельными.
