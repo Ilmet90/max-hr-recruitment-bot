@@ -20,6 +20,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import db
 from app import maintenance
+from app import max_api2_certs
 from app import trudvsem_import
 from app.max_api import MaxAPI
 
@@ -117,6 +118,9 @@ def render(request: Request, template: str, context: dict | None = None) -> HTML
         "access_label": db.access_label,
         "bool_label": db.bool_label,
         "maintenance_sudoers_command": maintenance.sudoers_setup_command(),
+        "max_api2_status": max_api2_certs.get_max_api2_status(),
+        "max_api2_root_archive_name": max_api2_certs.ROOT_ARCHIVE_NAME,
+        "max_api2_sub_archive_name": max_api2_certs.SUB_ARCHIVE_NAME,
     }
     if context:
         data.update(context)
@@ -582,6 +586,103 @@ def about_restart_bot(request: Request) -> HTMLResponse:
             "can_maintain": True,
             "messages": [message] if ok else [],
             "errors": [] if ok else [message],
+        },
+    )
+
+
+@app.post("/admin/about/max-api2/upload", response_class=HTMLResponse)
+async def about_max_api2_upload(
+    request: Request,
+    root_archive: UploadFile = File(...),
+    sub_archive: UploadFile = File(...),
+) -> HTMLResponse:
+    require_admin(request)
+    if not has_head_rights(request):
+        raise HTTPException(status_code=403)
+
+    preview = None
+    errors: list[str] = []
+    try:
+        root_content = await root_archive.read(max_api2_certs.MAX_ARCHIVE_BYTES + 1)
+        sub_content = await sub_archive.read(max_api2_certs.MAX_ARCHIVE_BYTES + 1)
+        upload_id = max_api2_certs.create_upload(
+            root_archive.filename,
+            root_content,
+            sub_archive.filename,
+            sub_content,
+        )
+        preview = max_api2_certs.inspect_upload(upload_id)
+        errors.extend(preview.get("errors") or [])
+    except (OSError, ValueError) as exc:
+        errors.append(str(exc))
+    except Exception:
+        traceback.print_exc()
+        errors.append("Не удалось проверить архивы сертификатов. Подробности смотрите в журнале сервера.")
+    finally:
+        await root_archive.close()
+        await sub_archive.close()
+
+    return render(
+        request,
+        "about.html",
+        {
+            "info": maintenance.check_updates(),
+            "can_maintain": True,
+            "cert_preview": preview,
+            "errors": errors,
+            "messages": ["Архивы загружены в приватный каталог и проверены."] if preview and preview.get("ok") else [],
+        },
+    )
+
+
+@app.post("/admin/about/max-api2/install", response_class=HTMLResponse)
+def about_max_api2_install(request: Request, upload_id: str = Form(...)) -> HTMLResponse:
+    require_admin(request)
+    if not has_head_rights(request):
+        raise HTTPException(status_code=403)
+    try:
+        ok, message, manual_command = max_api2_certs.install_upload(upload_id)
+        preview = None if ok else max_api2_certs.inspect_upload(upload_id)
+    except (OSError, ValueError) as exc:
+        ok, message, manual_command, preview = False, str(exc), "", None
+    except Exception:
+        traceback.print_exc()
+        ok = False
+        message = "Не удалось установить сертификаты. Подробности смотрите в журнале сервера."
+        manual_command = ""
+        preview = None
+    return render(
+        request,
+        "about.html",
+        {
+            "info": maintenance.check_updates(),
+            "can_maintain": True,
+            "cert_preview": preview,
+            "manual_cert_command": manual_command,
+            "messages": [message] if ok else [],
+            "errors": [] if ok else [message],
+        },
+    )
+
+
+@app.post("/admin/about/max-api2/cleanup", response_class=HTMLResponse)
+def about_max_api2_cleanup(request: Request, upload_id: str = Form(...)) -> HTMLResponse:
+    require_admin(request)
+    if not has_head_rights(request):
+        raise HTTPException(status_code=403)
+    try:
+        max_api2_certs.cleanup_upload(upload_id)
+        messages, errors = ["Временные файлы сертификатов удалены."], []
+    except (OSError, ValueError) as exc:
+        messages, errors = [], [str(exc)]
+    return render(
+        request,
+        "about.html",
+        {
+            "info": maintenance.check_updates(),
+            "can_maintain": True,
+            "messages": messages,
+            "errors": errors,
         },
     )
 

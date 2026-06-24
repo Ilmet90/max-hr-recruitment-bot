@@ -79,7 +79,7 @@ APP_PORT="$(read_with_default "APP_PORT" "8000")"
 
 echo "== Установка системных пакетов =="
 apt-get update
-apt-get install -y python3 python3-venv python3-pip git curl rsync sqlite3 ca-certificates openssl
+apt-get install -y python3 python3-venv python3-pip git curl rsync sqlite3 ca-certificates openssl unzip
 
 echo "== Подготовка пользователя и каталога =="
 if ! id "$SERVICE_USER" >/dev/null 2>&1; then

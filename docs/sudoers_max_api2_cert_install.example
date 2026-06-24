@@ -1,0 +1,3 @@
+# Замените путь, если проект установлен в другой каталог.
+# Разрешается только фиксированный helper и только приватные каталоги загрузок.
+maxhrbot ALL=(root) NOPASSWD: /opt/max-hr-recruitment-bot/scripts/admin_install_mincifra_certs.sh /opt/max-hr-recruitment-bot/data/runtime/cert_uploads/*

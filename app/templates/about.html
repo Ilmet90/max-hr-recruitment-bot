@@ -21,6 +21,75 @@
 
 {% if can_maintain %}
   <section class="panel">
+    <h2>MAX API2 и сертификаты</h2>
+    <p><strong>MAX API endpoint:</strong> <code>{{ max_api2_status.base_url }}</code></p>
+    <p><strong>Bundle доверенных сертификатов:</strong> <code>{{ max_api2_status.requests_ca_bundle }}</code></p>
+    <p><strong>Версия программы:</strong> {{ info.version }}</p>
+    <p>
+      Загружайте сертификаты только с
+      <a href="{{ max_api2_status.official_cert_url }}" target="_blank" rel="noopener noreferrer">официальной страницы Госуслуг</a>.
+      Архивы сохраняются в закрытом служебном каталоге и не публикуются через web-сервер.
+    </p>
+    <form method="post" action="/admin/about/max-api2/upload" enctype="multipart/form-data">
+      <label>
+        Корневые сертификаты
+        <input type="file" name="root_archive" accept=".zip,application/zip" required>
+        <span class="small">Ожидается файл <code>{{ max_api2_root_archive_name }}</code>.</span>
+      </label>
+      <label>
+        Подчинённые сертификаты
+        <input type="file" name="sub_archive" accept=".zip,application/zip" required>
+        <span class="small">Ожидается файл <code>{{ max_api2_sub_archive_name }}</code>.</span>
+      </label>
+      <button type="submit">Загрузить и проверить архивы</button>
+    </form>
+
+    {% if cert_preview %}
+      <h3>Предварительная проверка</h3>
+      <p><strong>Получены архивы:</strong> {{ cert_preview.files_received | join(", ") }}</p>
+      {% if cert_preview.certificates %}
+        <table>
+          <thead><tr><th>Архив и файл</th><th>Формат</th><th>Кому выдан</th><th>Кем выдан</th></tr></thead>
+          <tbody>
+          {% for certificate in cert_preview.certificates %}
+            <tr>
+              <td>{{ certificate.archive }}<br><span class="small">{{ certificate.filename }}</span></td>
+              <td>{{ certificate.format }}</td>
+              <td>{{ certificate.subject }}</td>
+              <td>{{ certificate.issuer }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+      {% if cert_preview.junk_files %}
+        <p><strong>Файлы, не являющиеся сертификатами:</strong></p>
+        <ul>{% for filename in cert_preview.junk_files %}<li>{{ filename }}</li>{% endfor %}</ul>
+      {% endif %}
+      <div class="actions">
+        {% if cert_preview.ok %}
+          <form method="post" action="/admin/about/max-api2/install" onsubmit="return confirm('Сертификаты будут добавлены в системное хранилище, настройки MAX API2 обновлены, а служба MAX-бота перезапущена. Продолжить?')">
+            <input type="hidden" name="upload_id" value="{{ cert_preview.upload_id }}">
+            <button type="submit">Установить сертификаты</button>
+          </form>
+        {% endif %}
+        <form method="post" action="/admin/about/max-api2/cleanup">
+          <input type="hidden" name="upload_id" value="{{ cert_preview.upload_id }}">
+          <button type="submit" class="secondary">Удалить временные файлы</button>
+        </form>
+      </div>
+    {% endif %}
+
+    {% if manual_cert_command %}
+      <p class="alert">
+        Ограниченный sudoers для web-установки не настроен. Выполните на сервере:<br>
+        <code>{{ manual_cert_command }}</code>
+      </p>
+    {% endif %}
+    <p class="small">TLS-проверка остаётся включённой. Использование <code>verify=False</code> недопустимо.</p>
+  </section>
+
+  <section class="panel">
     <h2>Обслуживание</h2>
     <p class="alert">Перед обновлением или откатом рабочего сервера рекомендуется сделать snapshot виртуальной машины.</p>
     <p class="small">
