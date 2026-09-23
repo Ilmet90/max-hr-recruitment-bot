@@ -438,6 +438,9 @@ def ensure_interest_notifications_schema() -> None:
         if "interest_mode_changed_at" not in columns:
             conn.execute("ALTER TABLE admins ADD COLUMN interest_mode_changed_at TEXT")
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('interest_notifications_activated_at', ?)", (utc_now_iso(),))
+        conn.execute("""UPDATE admins SET interest_mode_changed_at =
+            (SELECT value FROM settings WHERE key = 'interest_notifications_activated_at')
+            WHERE interest_mode_changed_at IS NULL""")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS interest_digests (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

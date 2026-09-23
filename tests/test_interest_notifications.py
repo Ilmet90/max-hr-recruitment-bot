@@ -108,8 +108,12 @@ class InterestTests(unittest.TestCase):
             conn.execute("ALTER TABLE admins DROP COLUMN interest_mode_changed_at")
             conn.execute("ALTER TABLE admins DROP COLUMN interest_mode")
         db.init_db()
+        activated_at = db.get_setting("interest_notifications_activated_at")
+        changed_at = db.get_admin(admin["id"])["interest_mode_changed_at"]
+        self.assertEqual(changed_at, activated_at)
         db.init_db()
         self.assertEqual(db.get_admin(admin["id"])["interest_mode"], "3h")
+        self.assertEqual(db.get_admin(admin["id"])["interest_mode_changed_at"], changed_at)
         self.assertEqual(db.fetch_one("SELECT question_text FROM questions")["question_text"], "old question")
         self.assertEqual(db.fetch_one("SELECT COUNT(*) AS n FROM user_activity_events")["n"], 1)
         interest.run_once(self.api, BASE + timedelta(hours=5))
