@@ -435,6 +435,18 @@ def profile_update(
     return render(request, "profile.html", {"messages": messages, "errors": errors})
 
 
+@app.post("/admin/profile/interest-mode")
+def profile_interest_mode(request: Request, interest_mode: str = Form(...)) -> RedirectResponse:
+    require_admin(request)
+    admin = current_admin(request)
+    if not admin or admin["role"] == "superadmin" or admin.get("id") is None:
+        raise HTTPException(status_code=403)
+    if interest_mode not in db.INTEREST_MODES:
+        raise HTTPException(status_code=400, detail="Недопустимый режим уведомлений")
+    db.set_interest_mode(int(admin["id"]), interest_mode)
+    return redirect("/admin/profile")
+
+
 @app.get("/admin/settings", response_class=HTMLResponse)
 def settings_page(request: Request) -> HTMLResponse:
     require_admin(request)

@@ -17,6 +17,22 @@
   {% endif %}
 </section>
 
+{% if current_admin.role != "superadmin" %}
+<form class="form" method="post" action="/admin/profile/interest-mode">
+  <h2>Уведомления об интересе</h2>
+  <p>Общие уведомления: {{ "включены" if current_admin.raw.can_receive_notifications else "отключены руководителем" }}</p>
+  <label>Режим
+    <select name="interest_mode">
+      <option value="off" {% if current_admin.raw.interest_mode == "off" %}selected{% endif %}>Выкл</option>
+      <option value="1h" {% if current_admin.raw.interest_mode == "1h" %}selected{% endif %}>Через 1 час</option>
+      <option value="3h" {% if current_admin.raw.interest_mode == "3h" %}selected{% endif %}>Через 3 часа</option>
+      <option value="daily" {% if current_admin.raw.interest_mode == "daily" %}selected{% endif %}>Ежедневная сводка</option>
+    </select>
+  </label>
+  <button>Сохранить режим</button>
+</form>
+{% endif %}
+
 <form class="form" method="post" action="/admin/profile">
   {% if current_admin.role != "superadmin" %}
   <h2>Смена логина</h2>
