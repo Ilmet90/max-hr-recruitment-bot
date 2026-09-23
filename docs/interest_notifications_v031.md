@@ -46,7 +46,8 @@ The normal application/question/appeal notification path is unchanged.
 Messages show only recorded identity and event facts. Vacancy views use saved
 `vacancy_title` metadata, so a deleted vacancy remains understandable. The
 history button contains a random opaque token; the bot verifies the current HR
-recipient before showing up to 25 recent events. A digest button opens a list
+recipient before showing up to 25 recent events. If MAX rejects a keyboard,
+the same command remains in the message text. A digest button opens a list
 of its users first. Times displayed to HR use Europe/Moscow; stored activity
 timestamps remain UTC. MAX profile deep links and candidate replies are absent.
 Conversations begin only in v0.3.2.

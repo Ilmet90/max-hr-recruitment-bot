@@ -327,6 +327,9 @@ class InterestTests(unittest.TestCase):
         self.assertEqual(self.delivery(admin, first)["status"], "sent")
         self.assertEqual(self.delivery(admin, second)["status"], "sent")
         self.assertIsNotNone(interest.digest_for_token(digest["action_token"], admin))
+        self.assertIn("Список интересов " + digest["action_token"], self.api.sent[0][0])
+        self.assertIn("История активности " + self.delivery(admin, first)["action_token"],
+                      interest.digest_for_token(digest["action_token"], admin)[0])
         self.assertIsNotNone(interest.history_for_token(self.delivery(admin, first)["action_token"], admin))
         wrong = self.admin("wrong", "off")
         self.assertIsNone(interest.digest_for_token(digest["action_token"], wrong))
@@ -388,6 +391,7 @@ class InterestTests(unittest.TestCase):
         ctx = self.candidate()
         interest.run_once(self.api, BASE + timedelta(hours=1))
         token = self.delivery(admin, ctx)["action_token"]
+        self.assertIn("История активности " + token, self.api.sent[0][0])
 
         def message(text: str, user_id: str) -> None:
             update = {"message": {"sender": {"user_id": user_id}, "recipient": {"chat_id": "chat-" + user_id},

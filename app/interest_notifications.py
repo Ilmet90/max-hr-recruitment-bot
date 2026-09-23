@@ -332,7 +332,8 @@ def _session_summary(session: dict[str, Any], user: dict[str, Any]) -> str:
 
 def _single_message(delivery: dict[str, Any], session: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     user = db.fetch_one("SELECT * FROM messenger_users WHERE id = ?", (session["messenger_user_id"],)) or {}
-    return _session_summary(session, user), build_keyboard([[f"История активности {delivery['action_token']}"]])
+    command = f"История активности {delivery['action_token']}"
+    return _session_summary(session, user)[:3350] + f"\n\nИстория: {command}", build_keyboard([[command]])
 
 
 def process_singles(api: MaxAPI, now: str, limit: int = 20) -> None:
@@ -499,16 +500,17 @@ def process_daily(api: MaxAPI, at: datetime) -> None:
         lines = [f"Сводка интереса за {local_date}", ""]
         for item in unique_users.values():
             user = db.fetch_one("SELECT * FROM messenger_users WHERE id = ?", (item["messenger_user_id"],)) or {}
-            lines.append(f"• {_identity(user)} — {local_time(item['last_activity_at'])}")
+            lines.append(f"• {_identity(user)[:100]} — {local_time(item['last_activity_at'])}")
         if digest.get("remaining_count"):
             lines.append(f"\nЕщё пользователей в очереди: {digest['remaining_count']}")
         lines.append("\nОтклики, вопросы или обращения не оставлены.")
-        keyboard = build_keyboard([[f"Список интересов {digest['action_token']}"]])
+        command = f"Список интересов {digest['action_token']}"
+        keyboard = build_keyboard([[command]])
         if not _confirm_digest_sending(digest["id"], token, admin["id"], start, now):
             continue
         error = None
         try:
-            _send_once(api, admin, "\n".join(lines)[:3500], keyboard)
+            _send_once(api, admin, "\n".join(lines)[:3350] + f"\n\nОткрыть список: {command}", keyboard)
         except Exception as exc:
             error = exc
         _finish("interest_digests", digest["id"], token, error, now)
@@ -557,6 +559,7 @@ def digest_for_token(token: str, admin: dict[str, Any]) -> tuple[str, dict[str, 
     buttons = []
     for item in items:
         user = db.fetch_one("SELECT * FROM messenger_users WHERE id = ?", (item["messenger_user_id"],)) or {}
-        lines.append(f"• {_identity(user)} — {local_time(item['last_activity_at'])}")
-        buttons.append([f"История активности {item['action_token']}"])
+        command = f"История активности {item['action_token']}"
+        lines.append(f"• {_identity(user)[:80]} — {local_time(item['last_activity_at'])}\n  {command}")
+        buttons.append([command])
     return "\n".join(lines)[:3500], build_keyboard(buttons) if buttons else None
