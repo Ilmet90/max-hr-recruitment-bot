@@ -159,10 +159,12 @@ def normalize(text: str) -> str:
 
 def extract_message(update: dict[str, Any]) -> dict[str, Any] | None:
     event = update.get("event") if isinstance(update.get("event"), dict) else {}
+    payload = update.get("payload") if isinstance(update.get("payload"), dict) else {}
+    body = update.get("body") if isinstance(update.get("body"), dict) else {}
     message = (
         update.get("message")
-        or update.get("payload", {}).get("message")
-        or update.get("body", {}).get("message")
+        or payload.get("message")
+        or body.get("message")
         or event.get("message")
     )
     if not isinstance(message, dict):
@@ -287,6 +289,52 @@ def extract_display_name(update: dict[str, Any]) -> str:
     name_parts = [str(sender.get("first_name") or "").strip(), str(sender.get("last_name") or "").strip()]
     display = " ".join(part for part in name_parts if part)
     return display or str(sender.get("name") or sender.get("username") or "")
+
+
+def extract_user_profile(update: dict[str, Any]) -> dict[str, str | None]:
+    """Use only a sender object whose ID matches the existing MAX ID extraction."""
+    user_id = extract_user_id(update)
+    message = extract_message(update) or {}
+    candidates = (
+        dict_value(update, "user"), dict_value(update, "event", "user"),
+        dict_value(message, "sender"), dict_value(message, "from"),
+    )
+    matched = [
+        item for item in candidates if isinstance(item, dict)
+        and user_id and str(item.get("user_id") or item.get("id") or "") == user_id
+    ]
+    def profile_value(key: str) -> str:
+        return next((str(item[key]).strip() for item in matched if item.get(key) is not None and str(item[key]).strip()), "")
+
+    first_name = profile_value("first_name")
+    last_name = profile_value("last_name")
+    display_name = " ".join(part for part in (first_name, last_name) if part)
+    return {
+        "display_name": display_name or profile_value("name") or profile_value("username"),
+        "first_name": first_name,
+        "last_name": last_name,
+        "username": profile_value("username"),
+        "avatar_url": None,
+    }
+
+
+def candidate_activity(update: dict[str, Any], user_id: str) -> db.ActivityContext | None:
+    if not user_id:
+        return None
+    admin = db.get_admin_by_user_id(user_id)
+    if admin and admin.get("approved") == 1 and admin.get("is_active") == 1 and admin.get("role") in {"hr_staff", "hr_head"}:
+        return None
+    return db.touch_candidate("max", user_id, extract_user_profile(update))
+
+
+def track_candidate(
+    activity: db.ActivityContext | None, event_type: str,
+    vacancy: dict[str, Any] | None = None,
+) -> None:
+    if activity:
+        vacancy_id = int(vacancy["id"]) if vacancy else None
+        metadata = {"vacancy_title": str(vacancy["title"])} if vacancy else None
+        db.record_activity_event(activity, event_type, vacancy_id, metadata)
 
 
 def send(
@@ -683,7 +731,10 @@ def appeal_notify_text(full_name: str, phone: str, appeal_text: str) -> str:
     return f"Новое сообщение через бота\n\nФИО:\n{full_name}\n\nТелефон:\n{phone}\n\nТекст:\n{appeal_text}\n\nДата:\n{db.now_iso()}"
 
 
-def handle_application(api: MaxAPI, chat_id: str, state_id: str, user_id: str, text: str, state: dict[str, Any]) -> None:
+def handle_application(
+    api: MaxAPI, chat_id: str, state_id: str, user_id: str, text: str,
+    state: dict[str, Any], activity: db.ActivityContext | None = None,
+) -> None:
     if state["step"] == "choose_vacancy":
         vacancy = parse_choice(text, state["vacancies"])
         if not vacancy:
@@ -696,6 +747,7 @@ def handle_application(api: MaxAPI, chat_id: str, state_id: str, user_id: str, t
         }
         state["step"] = "full_name"
         send(api, chat_id, application_start_prompt(), user_id=user_id, keyboard=cancel_keyboard())
+        track_candidate(activity, "vacancy_apply_started", vacancy)
         return
 
     command = normalize(text)
@@ -768,7 +820,7 @@ def handle_application(api: MaxAPI, chat_id: str, state_id: str, user_id: str, t
         show_main_menu(api, chat_id, user_id=user_id)
         return
     data["comment"] = normalize_application_comment(str(data.get("comment") or ""))
-    application_id = db.create_application(data)
+    application_id = db.create_application(data, activity=activity)
     notify_admins(
         api,
         application_notify_text(data),
@@ -784,20 +836,26 @@ def handle_application(api: MaxAPI, chat_id: str, state_id: str, user_id: str, t
     )
 
 
-def handle_question(api: MaxAPI, chat_id: str, state_id: str, user_id: str, text: str, state: dict[str, Any]) -> None:
+def handle_question(
+    api: MaxAPI, chat_id: str, state_id: str, user_id: str, text: str,
+    state: dict[str, Any], activity: db.ActivityContext | None = None,
+) -> None:
     if state["step"] == "question":
         state["question"] = text
         state["step"] = "contact"
         send(api, chat_id, "Укажите контакт для связи или напишите «нет».", user_id=user_id, keyboard=cancel_keyboard())
         return
     contact = "" if normalize(text) == "нет" else text
-    db.create_question(user_id, state["question"], contact)
+    db.create_question(user_id, state["question"], contact, activity=activity)
     notify_admins(api, question_notify_text(state["question"], contact or "не указан"))
     user_states.pop(state_id, None)
     send(api, chat_id, org_text("question_success_text"), user_id=user_id, keyboard=MENU_ONLY_KEYBOARD)
 
 
-def handle_appeal(api: MaxAPI, chat_id: str, state_id: str, user_id: str, text: str, state: dict[str, Any]) -> None:
+def handle_appeal(
+    api: MaxAPI, chat_id: str, state_id: str, user_id: str, text: str,
+    state: dict[str, Any], activity: db.ActivityContext | None = None,
+) -> None:
     if state["step"] == "full_name":
         state["full_name"] = text
         state["step"] = "phone"
@@ -808,7 +866,7 @@ def handle_appeal(api: MaxAPI, chat_id: str, state_id: str, user_id: str, text: 
         state["step"] = "text"
         send(api, chat_id, "Напишите текст сообщения.", user_id=user_id, keyboard=cancel_keyboard())
         return
-    db.create_appeal(user_id, state["full_name"], state["phone"], text)
+    db.create_appeal(user_id, state["full_name"], state["phone"], text, activity=activity)
     notify_admins(api, appeal_notify_text(state["full_name"], state["phone"], text))
     user_states.pop(state_id, None)
     send(api, chat_id, org_text("appeal_success_text"), user_id=user_id, keyboard=MENU_ONLY_KEYBOARD)
@@ -1372,6 +1430,7 @@ def handle_bot_started(api: MaxAPI, update: dict[str, Any]) -> None:
     state_id = chat_id or user_id
     user_states.pop(state_id, None)
     show_main_menu(api, chat_id, user_id=user_id)
+    track_candidate(candidate_activity(update, user_id), "bot_started")
 
 
 def handle_message(api: MaxAPI, message: dict[str, Any], update: dict[str, Any] | None = None) -> None:
@@ -1385,6 +1444,12 @@ def handle_message(api: MaxAPI, message: dict[str, Any], update: dict[str, Any] 
     state_id = chat_id or user_id
 
     command = normalize(text)
+    technical_command = (
+        command.startswith(("/admin", "/staff", "одобрить доступ #", "одобрить как сотрудника #",
+                            "одобрить как начальника #", "отклонить доступ #", "отклонить #",
+                            "принять в работу #"))
+    )
+    activity = None if technical_command else candidate_activity(source, user_id)
     if command in {"/cancel", "отмена"}:
         state = user_states.get(state_id)
         admin = db.get_admin_by_user_id(user_id)
@@ -1397,6 +1462,7 @@ def handle_message(api: MaxAPI, message: dict[str, Any], update: dict[str, Any] 
     if command in {"/start", "/menu", "меню", "главное меню", "начать", "start", "старт", "bot_start"}:
         user_states.pop(state_id, None)
         show_main_menu(api, chat_id, user_id=user_id)
+        track_candidate(activity, "bot_started" if command in {"/start", "начать", "start", "старт", "bot_start"} else "main_menu_opened")
         return
     if command.startswith("/admin"):
         handle_admin_command(api, chat_id, user_id, display_name, text)
@@ -1421,33 +1487,37 @@ def handle_message(api: MaxAPI, message: dict[str, Any], update: dict[str, Any] 
         scenario = state.get("scenario")
         if command in {"назад", "назад к вакансиям"}:
             show_vacancies(api, chat_id, state_id, "view", user_id=user_id)
+            track_candidate(activity, "vacancies_opened")
             return
         if scenario == "view":
             vacancy = parse_choice(text, state["vacancies"])
             if vacancy:
                 show_vacancy_detail(api, chat_id, state_id, vacancy, user_id=user_id)
+                track_candidate(activity, "vacancy_viewed", vacancy)
             else:
                 send(api, chat_id, "Напишите номер вакансии из списка.", user_id=user_id, keyboard=vacancy_buttons(state["vacancies"]))
             return
         if scenario == "vacancy_detail":
             if command in {"откликнуться на эту вакансию", "отклик"}:
                 start_application_for_vacancy(api, chat_id, state_id, user_id, state["vacancy"])
+                track_candidate(activity, "vacancy_apply_started", state["vacancy"])
             else:
                 send(api, chat_id, "Выберите действие кнопкой или напишите команду.", user_id=user_id, keyboard=VACANCY_DETAIL_KEYBOARD)
             return
         if scenario == "application":
-            handle_application(api, chat_id, state_id, user_id, text, state)
+            handle_application(api, chat_id, state_id, user_id, text, state, activity)
             return
         if scenario == "question":
-            handle_question(api, chat_id, state_id, user_id, text, state)
+            handle_question(api, chat_id, state_id, user_id, text, state, activity)
             return
         if scenario == "appeal":
-            handle_appeal(api, chat_id, state_id, user_id, text, state)
+            handle_appeal(api, chat_id, state_id, user_id, text, state, activity)
             return
         if scenario == "service_photo_albums":
             if command in {"условия службы", "условия"}:
                 user_states.pop(state_id, None)
                 service_conditions(api, chat_id, user_id=user_id)
+                track_candidate(activity, "conditions_opened")
                 return
             if command in {"выбрать другой альбом", "просмотреть фотографии"}:
                 show_service_photo_albums(api, chat_id, state_id, user_id=user_id)
@@ -1461,16 +1531,20 @@ def handle_message(api: MaxAPI, message: dict[str, Any], update: dict[str, Any] 
 
     if command in {"1", "актуальные вакансии", "вакансии"}:
         show_vacancies(api, chat_id, state_id, "view", user_id=user_id)
+        track_candidate(activity, "vacancies_opened")
     elif command in {"2", "откликнуться на вакансию", "откликнуться", "отклик"}:
         show_vacancies(api, chat_id, state_id, "application", user_id=user_id)
+        track_candidate(activity, "vacancies_opened")
     elif command in {"3", "задать вопрос", "вопрос"}:
         user_states[state_id] = {"scenario": "question", "step": "question"}
         send(api, chat_id, QUESTION_START_PROMPT, user_id=user_id, keyboard=cancel_keyboard())
+        track_candidate(activity, "question_section_opened")
     elif command in {"4", "написать сообщение", "сообщение"}:
         user_states[state_id] = {"scenario": "appeal", "step": "full_name"}
         send(api, chat_id, "Укажите ФИО.", user_id=user_id, keyboard=cancel_keyboard())
     elif command in {"5", "условия службы", "условия"}:
         service_conditions(api, chat_id, user_id=user_id)
+        track_candidate(activity, "conditions_opened")
     elif command in {"просмотреть фотографии", "выбрать другой альбом"}:
         show_service_photo_albums(api, chat_id, state_id, user_id=user_id)
     elif command.startswith("фотоальбом #") or command.startswith("альбом:"):
