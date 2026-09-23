@@ -9,7 +9,7 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
-from app import db, maintenance, trudvsem_import
+from app import db, interest_notifications, maintenance, trudvsem_import
 from app.admin_bot import notify_admins, notify_approvers
 from app.max_api import MaxAPI, build_keyboard
 
@@ -87,10 +87,10 @@ COMMENT_KEYBOARD = build_keyboard([["Пропустить"], ["Отмена"]])
 VACANCY_DETAIL_KEYBOARD = build_keyboard([["Откликнуться на эту вакансию"], ["Назад к вакансиям"], ["Главное меню"]])
 STAFF_BACK_KEYBOARD = build_keyboard([["Служебное меню"], ["Меню кандидата"]])
 STAFF_MENU_KEYBOARD = build_keyboard(
-    [["Новые отклики"], ["Мои отклики в работе"], ["Все отклики"], ["Архив откликов"], ["Вакансии", "Условия службы"], ["О программе"], ["Статистика"], ["Меню кандидата"]]
+    [["Новые отклики"], ["Мои отклики в работе"], ["Все отклики"], ["Архив откликов"], ["Вакансии", "Условия службы"], ["Уведомления об интересе"], ["О программе"], ["Статистика"], ["Меню кандидата"]]
 )
 HEAD_STAFF_MENU_KEYBOARD = build_keyboard(
-    [["Новые отклики"], ["Мои отклики в работе"], ["Все отклики"], ["Архив откликов"], ["Назначить отклик"], ["Заявки на доступ"], ["Сотрудники отдела кадров"], ["Вакансии", "Условия службы"], ["О программе"], ["Статистика"], ["Меню кандидата"]]
+    [["Новые отклики"], ["Мои отклики в работе"], ["Все отклики"], ["Архив откликов"], ["Назначить отклик"], ["Заявки на доступ"], ["Сотрудники отдела кадров"], ["Вакансии", "Условия службы"], ["Уведомления об интересе"], ["О программе"], ["Статистика"], ["Меню кандидата"]]
 )
 STAFF_ABOUT_KEYBOARD = build_keyboard([["Проверить обновления"], ["Обновить из GitHub"], ["Перезапустить MAX-бота"], ["Перезапустить web-панель управления"], ["Служебное меню"]])
 
@@ -1287,6 +1287,20 @@ def handle_staff_text(api: MaxAPI, chat_id: str, user_id: str, state_id: str, co
         return True
     if not has_staff_access(admin):
         return False
+    if command == "уведомления об интересе":
+        mode = interest_notifications.mode_label(str(admin.get("interest_mode") or "3h"))
+        enabled = "включены" if admin.get("can_receive_notifications") == 1 else "отключены руководителем"
+        keyboard = build_keyboard([["Интерес: выкл"], ["Интерес: через 1 час"],
+                                   ["Интерес: через 3 часа"], ["Интерес: ежедневно"], ["Служебное меню"]])
+        send(api, chat_id, f"Уведомления об интересе: {mode}. Общие уведомления {enabled}.", user_id=user_id, keyboard=keyboard)
+        return True
+    choices = {"интерес: выкл": "off", "интерес: через 1 час": "1h",
+               "интерес: через 3 часа": "3h", "интерес: ежедневно": "daily"}
+    if command in choices:
+        db.set_interest_mode(int(admin["id"]), choices[command])
+        send(api, chat_id, f"Режим уведомлений об интересе: {interest_notifications.mode_label(choices[command])}.",
+             user_id=user_id, keyboard=STAFF_BACK_KEYBOARD)
+        return True
     state = user_states.get(state_id)
     if state and handle_staff_assignment_state(api, chat_id, user_id, state_id, command, command, state, admin):
         return True
@@ -1476,6 +1490,17 @@ def handle_message(api: MaxAPI, message: dict[str, Any], update: dict[str, Any] 
     if command.startswith("принять в работу #"):
         handle_take_application_command(api, chat_id, user_id, text)
         return
+    action = re.fullmatch(r"(история активности|список интересов) ([0-9a-f]{16})", command)
+    if action:
+        admin = db.get_admin_by_user_id(user_id)
+        result = (interest_notifications.history_for_token(action.group(2), admin)
+                  if action.group(1) == "история активности"
+                  else interest_notifications.digest_for_token(action.group(2), admin))
+        if result:
+            send(api, chat_id, result[0], user_id=user_id, keyboard=result[1] or STAFF_BACK_KEYBOARD)
+        else:
+            send(api, chat_id, "История недоступна.", user_id=user_id)
+        return
     if handle_staff_text(api, chat_id, user_id, state_id, command):
         return
 
@@ -1571,6 +1596,18 @@ def run_polling() -> None:
     api = MaxAPI(token)
     ensure_public_bot_commands(api)
     marker: str | None = None
+    last_interest_check = 0.0
+
+    def check_interest() -> None:
+        nonlocal last_interest_check
+        if time.monotonic() - last_interest_check < 30:
+            return
+        try:
+            interest_notifications.run_once(api)
+        except Exception as exc:
+            print(f"Ошибка обработки уведомлений об интересе: {type(exc).__name__}")
+        last_interest_check = time.monotonic()
+
     print("MAX-бот запущен. Для остановки нажмите Ctrl+C.")
     while True:
         try:
@@ -1587,10 +1624,12 @@ def run_polling() -> None:
                     handle_message(api, update, update)
                 else:
                     log_unknown_update(update)
+            check_interest()
         except KeyboardInterrupt:
             print("MAX-бот остановлен.")
             break
         except requests.exceptions.ReadTimeout:
+            check_interest()
             continue
         except Exception as exc:
             print(f"Ошибка polling: {exc}")
