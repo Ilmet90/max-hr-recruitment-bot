@@ -37,6 +37,7 @@ MEANINGFUL_EVENTS = frozenset({
 })
 CONVERSION_EVENTS = frozenset({"vacancy_application_submitted", "question_sent", "appeal_sent"})
 ACTIVITY_EVENTS = frozenset({"bot_started", "main_menu_opened"}) | MEANINGFUL_EVENTS | CONVERSION_EVENTS
+INTEREST_MODES = frozenset({"off", "1h", "3h", "daily"})
 
 
 def dict_row(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -338,6 +339,7 @@ def init_db() -> None:
         seed_default_trudvsem_settings(conn)
         seed_db(conn)
     ensure_activity_schema()
+    ensure_interest_notifications_schema()
 
 
 def ensure_activity_schema() -> None:
@@ -424,6 +426,102 @@ def ensure_activity_schema() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_user_time ON user_activity_events(messenger_user_id, created_at, id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_session_time ON user_activity_events(session_id, created_at, id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_type_time ON user_activity_events(event_type, created_at, id)")
+
+
+def ensure_interest_notifications_schema() -> None:
+    """Add per-HR delivery state without changing the v0.3.0 activity tables."""
+    with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(admins)")}
+        if "interest_mode" not in columns:
+            conn.execute("ALTER TABLE admins ADD COLUMN interest_mode TEXT NOT NULL DEFAULT '3h' CHECK (interest_mode IN ('off', '1h', '3h', 'daily'))")
+        if "interest_mode_changed_at" not in columns:
+            conn.execute("ALTER TABLE admins ADD COLUMN interest_mode_changed_at TEXT")
+        conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('interest_notifications_activated_at', ?)", (utc_now_iso(),))
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS interest_digests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                admin_id INTEGER NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
+                local_date TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN
+                    ('pending', 'claimed', 'sending', 'sent', 'failed', 'uncertain', 'cancelled')),
+                attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+                next_attempt_at TEXT, claim_token TEXT, claim_expires_at TEXT,
+                sent_at TEXT, last_error_code TEXT, action_token TEXT NOT NULL UNIQUE,
+                remaining_count INTEGER NOT NULL DEFAULT 0 CHECK (remaining_count >= 0),
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                UNIQUE (admin_id, local_date)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS interest_deliveries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                admin_id INTEGER NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
+                session_id INTEGER NOT NULL REFERENCES user_sessions(id) ON DELETE RESTRICT,
+                mode TEXT NOT NULL CHECK (mode IN ('1h', '3h', 'daily')),
+                due_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN
+                    ('pending', 'claimed', 'sending', 'batched', 'sent', 'failed', 'uncertain', 'cancelled', 'superseded')),
+                attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+                next_attempt_at TEXT, claim_token TEXT, claim_expires_at TEXT,
+                sent_at TEXT, last_error_code TEXT,
+                digest_id INTEGER REFERENCES interest_digests(id) ON DELETE RESTRICT,
+                action_token TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                UNIQUE (admin_id, session_id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_interest_sessions_due ON user_sessions(last_activity_at, id) WHERE meaningful_activity = 1 AND conversion_type IS NULL")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_interest_deliveries_due ON interest_deliveries(status, due_at, next_attempt_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_interest_deliveries_claim ON interest_deliveries(status, claim_expires_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_interest_deliveries_session ON interest_deliveries(session_id, admin_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_interest_deliveries_sent ON interest_deliveries(admin_id, status, sent_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_interest_digests_due ON interest_digests(status, next_attempt_at, local_date)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_interest_digests_claim ON interest_digests(status, claim_expires_at)")
+        expected = {
+            "interest_digests": {"id", "admin_id", "local_date", "status", "attempt_count", "next_attempt_at", "claim_token", "claim_expires_at", "sent_at", "last_error_code", "action_token", "remaining_count", "created_at", "updated_at"},
+            "interest_deliveries": {"id", "admin_id", "session_id", "mode", "due_at", "status", "attempt_count", "next_attempt_at", "claim_token", "claim_expires_at", "sent_at", "last_error_code", "digest_id", "action_token", "created_at", "updated_at"},
+        }
+        for table, required in expected.items():
+            actual = {row["name"]: row for row in conn.execute(f"PRAGMA table_info({table})")}
+            if not required <= actual.keys():
+                raise RuntimeError(f"Unexpected {table} schema: missing {sorted(required - actual.keys())}")
+            if any(actual[name]["notnull"] != 1 for name in ("admin_id", "status", "attempt_count", "action_token")):
+                raise RuntimeError(f"Unexpected {table} required columns")
+            foreign_keys = {row["from"]: row["table"] for row in conn.execute(f"PRAGMA foreign_key_list({table})")}
+            required_foreign_keys = {"admin_id": "admins"}
+            if table == "interest_deliveries":
+                required_foreign_keys.update({"session_id": "user_sessions", "digest_id": "interest_digests"})
+            if any(foreign_keys.get(column) != target for column, target in required_foreign_keys.items()):
+                raise RuntimeError(f"Unexpected {table} foreign keys")
+            unique_indexes = [row["name"] for row in conn.execute(f"PRAGMA index_list({table})") if row["unique"]]
+            required_uniques = (["admin_id", "local_date"] if table == "interest_digests" else ["admin_id", "session_id"])
+            if not any([row["name"] for row in conn.execute(f"PRAGMA index_info({index})")] == required_uniques for index in unique_indexes):
+                raise RuntimeError(f"Unexpected {table} uniqueness")
+        admin_columns = {row["name"]: row for row in conn.execute("PRAGMA table_info(admins)")}
+        if not {"interest_mode", "interest_mode_changed_at"} <= admin_columns.keys():
+            raise RuntimeError("Unexpected admins interest preference schema")
+        mode_column = admin_columns["interest_mode"]
+        if mode_column["type"].upper() != "TEXT" or mode_column["notnull"] != 1 or mode_column["dflt_value"] != "'3h'":
+            raise RuntimeError("Unexpected admins.interest_mode definition")
+        index_specs = {
+            "user_sessions": {"idx_interest_sessions_due": ["last_activity_at", "id"]},
+            "interest_deliveries": {
+                "idx_interest_deliveries_due": ["status", "due_at", "next_attempt_at"],
+                "idx_interest_deliveries_claim": ["status", "claim_expires_at"],
+                "idx_interest_deliveries_session": ["session_id", "admin_id"],
+                "idx_interest_deliveries_sent": ["admin_id", "status", "sent_at"],
+            },
+            "interest_digests": {
+                "idx_interest_digests_due": ["status", "next_attempt_at", "local_date"],
+                "idx_interest_digests_claim": ["status", "claim_expires_at"],
+            },
+        }
+        for table, specs in index_specs.items():
+            indexes = {row["name"] for row in conn.execute(f"PRAGMA index_list({table})")}
+            for index, columns in specs.items():
+                if index not in indexes or [row["name"] for row in conn.execute(f"PRAGMA index_info({index})")] != columns:
+                    raise RuntimeError(f"Unexpected {index} definition")
 
 
 def ensure_admins_schema(conn: sqlite3.Connection) -> None:
@@ -1468,10 +1566,10 @@ def approve_admin(admin_id: int, actor_id: int | None = None, actor_name: str = 
         UPDATE admins
         SET role = ?,
             approved = 1, is_active = 1, can_use_bot_admin = 1, can_receive_notifications = 1,
-            web_login = ?, password_hash = ?, must_change_password = 1, updated_at = ?
+            interest_mode_changed_at = ?, web_login = ?, password_hash = ?, must_change_password = 1, updated_at = ?
         WHERE id = ?
         """,
-        (role, web_login, hash_password(password), now_iso(), admin_id),
+        (role, utc_now_iso(), web_login, hash_password(password), now_iso(), admin_id),
     )
     audit_log(actor_id, actor_name, "admin_approved", "admin", admin_id, f"web_login={web_login}; role={role}")
     return get_admin(admin_id), password
@@ -1500,9 +1598,31 @@ def set_admin_role(admin_id: int, role: str, actor_id: int | None = None, actor_
 
 def set_admin_flags(admin_id: int, can_use_bot_admin: int, can_receive_notifications: int) -> None:
     execute(
-        "UPDATE admins SET can_use_bot_admin = ?, can_receive_notifications = ?, updated_at = ? WHERE id = ?",
-        (int(can_use_bot_admin), int(can_receive_notifications), now_iso(), admin_id),
+        """UPDATE admins SET can_use_bot_admin = ?, can_receive_notifications = ?,
+           interest_mode_changed_at = CASE WHEN can_receive_notifications != ? AND ? = 1 THEN ? ELSE interest_mode_changed_at END,
+           updated_at = ? WHERE id = ?""",
+        (int(can_use_bot_admin), int(can_receive_notifications), int(can_receive_notifications), int(can_receive_notifications), utc_now_iso(), now_iso(), admin_id),
     )
+
+
+def set_interest_mode(admin_id: int, mode: str) -> None:
+    if mode not in INTEREST_MODES:
+        raise ValueError("Unsupported interest notification mode")
+    changed_at = utc_now_iso()
+    with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        admin = conn.execute("SELECT interest_mode FROM admins WHERE id = ?", (admin_id,)).fetchone()
+        if admin is None:
+            raise ValueError("Unknown admin")
+        if admin["interest_mode"] == mode:
+            return
+        conn.execute("UPDATE admins SET interest_mode = ?, interest_mode_changed_at = ?, updated_at = ? WHERE id = ?", (mode, changed_at, now_iso(), admin_id))
+        conn.execute("""UPDATE interest_deliveries SET status = 'cancelled', updated_at = ?
+            WHERE admin_id = ? AND (status IN ('pending', 'failed', 'claimed') OR
+                (status = 'batched' AND digest_id IN
+                    (SELECT id FROM interest_digests WHERE status IN ('pending', 'failed', 'claimed'))))""", (changed_at, admin_id))
+        conn.execute("""UPDATE interest_digests SET status = 'cancelled', updated_at = ?
+            WHERE admin_id = ? AND status IN ('pending', 'failed', 'claimed')""", (changed_at, admin_id))
 
 
 def update_admin_login(admin_id: int, web_login: str, actor_id: int | None = None, actor_name: str = "Система") -> tuple[bool, str]:
@@ -1716,7 +1836,8 @@ def update_application_status(application_id: int, status: str, actor: dict[str,
 
 
 def toggle_admin(admin_id: int) -> None:
-    execute("UPDATE admins SET is_active = CASE is_active WHEN 1 THEN 0 ELSE 1 END WHERE id = ?", (admin_id,))
+    execute("""UPDATE admins SET is_active = CASE is_active WHEN 1 THEN 0 ELSE 1 END,
+        interest_mode_changed_at = CASE WHEN is_active = 0 THEN ? ELSE interest_mode_changed_at END WHERE id = ?""", (utc_now_iso(), admin_id))
 
 
 def delete_admin(admin_id: int) -> None:
