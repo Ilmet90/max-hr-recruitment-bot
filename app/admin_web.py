@@ -42,6 +42,23 @@ app = FastAPI(title=db.DEFAULT_ORG_SETTINGS["web_admin_title"])
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATE_DIR)
 
+UPDATE_RESTART_HTML = """<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="12;url=/admin/about">
+  <title>Обновление установлено</title>
+</head>
+<body>
+  <main>
+    <h1>Обновление установлено.</h1>
+    <p>Web-панель управления перезапускается. Подождите 10–15 секунд.</p>
+    <p><a href="/admin/about">Обновить страницу</a></p>
+  </main>
+</body>
+</html>"""
+
 
 def settings() -> dict[str, str]:
     return {
@@ -539,16 +556,15 @@ def about_update(request: Request, target_version: str = Form("")) -> HTMLRespon
     if not has_head_rights(request):
         raise HTTPException(status_code=403)
     ok, output = maintenance.run_update_script(target_version or None)
-    messages = ["Опубликованный релиз установлен. Службы перезапущены."] if ok else []
-    errors = [] if ok else ["Не удалось установить опубликованный релиз."]
+    if ok:
+        return HTMLResponse(UPDATE_RESTART_HTML)
     return render(
         request,
         "about.html",
         {
             "info": maintenance.check_updates(),
             "can_maintain": True,
-            "messages": messages,
-            "errors": errors,
+            "errors": ["Не удалось установить опубликованный релиз."],
             "command_output": output,
         },
     )

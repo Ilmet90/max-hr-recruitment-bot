@@ -20,6 +20,11 @@
 </section>
 
 {% if can_maintain %}
+  {% if max_api2_status is defined and max_api2_status.base_url is defined
+        and max_api2_status.requests_ca_bundle is defined
+        and max_api2_status.official_cert_url is defined
+        and max_api2_root_archive_name is defined
+        and max_api2_sub_archive_name is defined %}
   <section class="panel">
     <h2>MAX API2 и сертификаты</h2>
     <p><strong>MAX API endpoint:</strong> <code>{{ max_api2_status.base_url }}</code></p>
@@ -88,6 +93,7 @@
     {% endif %}
     <p class="small">TLS-проверка остаётся включённой. Использование <code>verify=False</code> недопустимо.</p>
   </section>
+  {% endif %}
 
   <section class="panel">
     <h2>Обслуживание</h2>
