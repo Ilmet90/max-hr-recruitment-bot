@@ -110,6 +110,9 @@ def materialize(at: datetime | None = None) -> None:
                 if not _eligible(conn, admin, session):
                     continue
                 due = _due(session, admin["interest_mode"])
+                if admin["interest_mode"] != "daily":
+                    cool = _cooldown_until(conn, admin["id"], session["messenger_user_id"])
+                    due = max(due, cool or due)
                 conn.execute("""INSERT OR IGNORE INTO interest_deliveries
                     (admin_id, session_id, mode, due_at, status, action_token, created_at, updated_at)
                     VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)""",
