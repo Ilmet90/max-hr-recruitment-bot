@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import os
 import hashlib
+import json
 import re
 import secrets
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -23,6 +24,19 @@ if not DATABASE_PATH.is_absolute():
 
 def now_iso() -> str:
     return datetime.now().replace(microsecond=0).isoformat(sep=" ")
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+SESSION_INACTIVITY = timedelta(hours=3)
+MEANINGFUL_EVENTS = frozenset({
+    "vacancies_opened", "vacancy_viewed", "vacancy_apply_started",
+    "conditions_opened", "question_section_opened",
+})
+CONVERSION_EVENTS = frozenset({"vacancy_application_submitted", "question_sent", "appeal_sent"})
+ACTIVITY_EVENTS = frozenset({"bot_started", "main_menu_opened"}) | MEANINGFUL_EVENTS | CONVERSION_EVENTS
 
 
 def dict_row(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -170,18 +184,22 @@ def get_connection() -> Iterable[sqlite3.Connection]:
     DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 10000")
     conn.execute("PRAGMA foreign_keys = ON")
     try:
         yield conn
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
 
 def init_db() -> None:
     with get_connection() as conn:
-        conn.executescript(
-            """
+        conn.execute("BEGIN IMMEDIATE")
+        schema_sql = """
             CREATE TABLE IF NOT EXISTS vacancies (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
@@ -305,7 +323,11 @@ def init_db() -> None:
                 value TEXT
             );
             """
-        )
+        # executescript() commits an open transaction; execute each fixed DDL statement
+        # so concurrent web/bot startups cannot race the legacy ALTER TABLE checks.
+        for statement in schema_sql.split(";"):
+            if statement.strip():
+                conn.execute(statement)
         ensure_admins_schema(conn)
         ensure_applications_schema(conn)
         ensure_archive_schema(conn)
@@ -315,6 +337,93 @@ def init_db() -> None:
         seed_default_update_settings(conn)
         seed_default_trudvsem_settings(conn)
         seed_db(conn)
+    ensure_activity_schema()
+
+
+def ensure_activity_schema() -> None:
+    """Apply the additive v0.3.0 schema in one SQLite write transaction."""
+    with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS messenger_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                messenger TEXT NOT NULL CHECK (length(trim(messenger)) > 0),
+                external_user_id TEXT NOT NULL CHECK (length(trim(external_user_id)) > 0),
+                display_name TEXT, first_name TEXT, last_name TEXT,
+                username TEXT, avatar_url TEXT,
+                first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
+                UNIQUE (messenger, external_user_id)
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                messenger_user_id INTEGER NOT NULL REFERENCES messenger_users(id) ON DELETE RESTRICT,
+                started_at TEXT NOT NULL, last_activity_at TEXT NOT NULL,
+                meaningful_activity INTEGER NOT NULL DEFAULT 0 CHECK (meaningful_activity IN (0, 1)),
+                first_meaningful_at TEXT,
+                conversion_type TEXT CHECK (conversion_type IS NULL OR conversion_type IN
+                    ('vacancy_application_submitted', 'question_sent', 'appeal_sent')),
+                converted_at TEXT, interest_notification_due_at TEXT,
+                interest_notification_sent_at TEXT, closed_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_activity_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                messenger_user_id INTEGER NOT NULL REFERENCES messenger_users(id) ON DELETE RESTRICT,
+                session_id INTEGER NOT NULL REFERENCES user_sessions(id) ON DELETE RESTRICT,
+                event_type TEXT NOT NULL CHECK (length(trim(event_type)) > 0),
+                vacancy_id INTEGER, metadata TEXT, created_at TEXT NOT NULL
+            )
+        """)
+        expected = {
+            "messenger_users": {"id", "messenger", "external_user_id", "display_name", "first_name", "last_name", "username", "avatar_url", "first_seen_at", "last_seen_at"},
+            "user_sessions": {"id", "messenger_user_id", "started_at", "last_activity_at", "meaningful_activity", "first_meaningful_at", "conversion_type", "converted_at", "interest_notification_due_at", "interest_notification_sent_at", "closed_at"},
+            "user_activity_events": {"id", "messenger_user_id", "session_id", "event_type", "vacancy_id", "metadata", "created_at"},
+        }
+        for table, columns in expected.items():
+            actual = {row["name"]: row for row in conn.execute(f"PRAGMA table_info({table})")}
+            if not columns <= actual.keys():
+                raise RuntimeError(f"Unexpected {table} schema: missing {sorted(columns - actual.keys())}")
+            required = {
+                "messenger_users": {"messenger": "TEXT", "external_user_id": "TEXT", "first_seen_at": "TEXT", "last_seen_at": "TEXT"},
+                "user_sessions": {"messenger_user_id": "INTEGER", "started_at": "TEXT", "last_activity_at": "TEXT", "meaningful_activity": "INTEGER"},
+                "user_activity_events": {"messenger_user_id": "INTEGER", "session_id": "INTEGER", "event_type": "TEXT", "created_at": "TEXT"},
+            }[table]
+            if any(actual[name]["type"].upper() != kind or actual[name]["notnull"] != 1 for name, kind in required.items()):
+                raise RuntimeError(f"Unexpected {table} required column definition")
+        for table, targets in {
+            "user_sessions": {"messenger_user_id": "messenger_users"},
+            "user_activity_events": {"messenger_user_id": "messenger_users", "session_id": "user_sessions"},
+        }.items():
+            foreign_keys = {row["from"]: (row["table"], row["on_delete"]) for row in conn.execute(f"PRAGMA foreign_key_list({table})")}
+            if any(foreign_keys.get(column) != (target, "RESTRICT") for column, target in targets.items()):
+                raise RuntimeError(f"Unexpected {table} foreign keys")
+        unique_indexes = [row["name"] for row in conn.execute("PRAGMA index_list(messenger_users)") if row["unique"]]
+        if not any(
+            [row["name"] for row in conn.execute(f"PRAGMA index_info({index})")] == ["messenger", "external_user_id"]
+            for index in unique_indexes
+        ):
+            raise RuntimeError("messenger_users identity key is not unique")
+        for table in ("applications", "questions", "appeals"):
+            columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+            if "messenger_user_id" not in columns:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN messenger_user_id INTEGER REFERENCES messenger_users(id) ON DELETE RESTRICT")
+            foreign_keys = list(conn.execute(f"PRAGMA foreign_key_list({table})"))
+            if not any(row["from"] == "messenger_user_id" and row["table"] == "messenger_users" for row in foreign_keys):
+                raise RuntimeError(f"Unexpected {table}.messenger_user_id foreign key")
+            conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_messenger_user ON {table}(messenger_user_id)")
+        for table in ("questions", "appeals"):
+            conn.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_{table}_unlinked_max_user ON {table}(max_user_id) "
+                "WHERE messenger_user_id IS NULL AND max_user_id IS NOT NULL"
+            )
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_user_sessions_one_open ON user_sessions(messenger_user_id) WHERE closed_at IS NULL")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_user_sessions_user_activity ON user_sessions(messenger_user_id, last_activity_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_user_time ON user_activity_events(messenger_user_id, created_at, id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_session_time ON user_activity_events(session_id, created_at, id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_type_time ON user_activity_events(event_type, created_at, id)")
 
 
 def ensure_admins_schema(conn: sqlite3.Connection) -> None:
@@ -687,6 +796,134 @@ def execute(query: str, params: tuple[Any, ...] = ()) -> int:
         return int(cur.lastrowid or 0)
 
 
+ActivityContext = tuple[int, int, str]  # messenger_user_id, session_id, external_user_id
+
+
+def _utc_datetime(value: str) -> datetime:
+    if not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z", value):
+        raise ValueError("Activity timestamps must use UTC milliseconds")
+    return datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+
+
+def _utc_iso(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def touch_candidate(
+    messenger: str, external_user_id: str, profile: dict[str, Any] | None = None,
+    at: str | None = None,
+) -> ActivityContext:
+    if messenger is None or external_user_id is None:
+        raise ValueError("Confirmed messenger and user ID are required")
+    messenger = str(messenger).strip()
+    external_user_id = str(external_user_id).strip()
+    if not messenger or not external_user_id:
+        raise ValueError("Confirmed messenger and user ID are required")
+    seen_at = at or utc_now_iso()
+    _utc_datetime(seen_at)
+    profile = profile or {}
+    values = {
+        key: str(profile[key]).strip() if profile.get(key) is not None else None
+        for key in ("display_name", "first_name", "last_name", "username", "avatar_url")
+    }
+    with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("""
+            INSERT INTO messenger_users
+                (messenger, external_user_id, display_name, first_name, last_name,
+                 username, avatar_url, first_seen_at, last_seen_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(messenger, external_user_id) DO UPDATE SET
+                display_name = COALESCE(NULLIF(excluded.display_name, ''), messenger_users.display_name),
+                first_name = COALESCE(NULLIF(excluded.first_name, ''), messenger_users.first_name),
+                last_name = COALESCE(NULLIF(excluded.last_name, ''), messenger_users.last_name),
+                username = COALESCE(NULLIF(excluded.username, ''), messenger_users.username),
+                avatar_url = COALESCE(NULLIF(excluded.avatar_url, ''), messenger_users.avatar_url),
+                last_seen_at = MAX(messenger_users.last_seen_at, excluded.last_seen_at)
+        """, (messenger, external_user_id, *(values[key] for key in values), seen_at, seen_at))
+        user = conn.execute(
+            "SELECT id FROM messenger_users WHERE messenger = ? AND external_user_id = ?",
+            (messenger, external_user_id),
+        ).fetchone()
+        user_id = int(user["id"])
+        if messenger == "max":
+            for table in ("questions", "appeals"):
+                conn.execute(
+                    f"UPDATE {table} SET messenger_user_id = ? WHERE messenger_user_id IS NULL AND max_user_id = ?",
+                    (user_id, external_user_id),
+                )
+        session = conn.execute(
+            "SELECT id, last_activity_at FROM user_sessions WHERE messenger_user_id = ? AND closed_at IS NULL",
+            (user_id,),
+        ).fetchone()
+        if session and _utc_datetime(seen_at) - _utc_datetime(session["last_activity_at"]) >= SESSION_INACTIVITY:
+            closed_at = _utc_iso(_utc_datetime(session["last_activity_at"]) + SESSION_INACTIVITY)
+            conn.execute("UPDATE user_sessions SET closed_at = ? WHERE id = ?", (closed_at, session["id"]))
+            session = None
+        if session:
+            session_id = int(session["id"])
+            conn.execute(
+                "UPDATE user_sessions SET last_activity_at = MAX(last_activity_at, ?) WHERE id = ?",
+                (seen_at, session_id),
+            )
+        else:
+            session_id = int(conn.execute(
+                "INSERT INTO user_sessions (messenger_user_id, started_at, last_activity_at) VALUES (?, ?, ?)",
+                (user_id, seen_at, seen_at),
+            ).lastrowid)
+    return user_id, session_id, external_user_id
+
+
+def _record_activity_event_conn(
+    conn: sqlite3.Connection, activity: ActivityContext, event_type: str,
+    vacancy_id: int | None = None, metadata: dict[str, Any] | None = None,
+    at: str | None = None,
+) -> int:
+    if event_type not in ACTIVITY_EVENTS:
+        raise ValueError("Unsupported activity event")
+    if metadata is not None:
+        if not isinstance(metadata, dict) or set(metadata) - {"vacancy_title"}:
+            raise ValueError("Unsupported activity metadata")
+        if "vacancy_title" in metadata and not isinstance(metadata["vacancy_title"], str):
+            raise ValueError("Invalid vacancy title")
+        encoded_metadata = json.dumps(metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    else:
+        encoded_metadata = None
+    user_id, session_id, _ = activity
+    if conn.execute(
+        "SELECT 1 FROM user_sessions WHERE id = ? AND messenger_user_id = ?", (session_id, user_id)
+    ).fetchone() is None:
+        raise ValueError("Activity session does not belong to messenger user")
+    created = at or utc_now_iso()
+    _utc_datetime(created)
+    event_id = int(conn.execute("""
+        INSERT INTO user_activity_events
+            (messenger_user_id, session_id, event_type, vacancy_id, metadata, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (user_id, session_id, event_type, vacancy_id, encoded_metadata, created)).lastrowid)
+    if event_type in MEANINGFUL_EVENTS or event_type in CONVERSION_EVENTS:
+        conn.execute("""
+            UPDATE user_sessions SET meaningful_activity = 1,
+                first_meaningful_at = COALESCE(first_meaningful_at, ?)
+            WHERE id = ?
+        """, (created, session_id))
+    if event_type in CONVERSION_EVENTS:
+        conn.execute("""
+            UPDATE user_sessions SET conversion_type = COALESCE(conversion_type, ?),
+                converted_at = COALESCE(converted_at, ?)
+            WHERE id = ?
+        """, (event_type, created, session_id))
+    return event_id
+
+
+def record_activity_event(
+    activity: ActivityContext, event_type: str, vacancy_id: int | None = None,
+    metadata: dict[str, Any] | None = None, at: str | None = None,
+) -> int:
+    with get_connection() as conn:
+        return _record_activity_event_conn(conn, activity, event_type, vacancy_id, metadata, at)
+
+
 def list_vacancies(active_only: bool = False) -> list[dict[str, Any]]:
     where = "WHERE is_active = 1" if active_only else ""
     return fetch_all(f"SELECT * FROM vacancies {where} ORDER BY sort_order, id")
@@ -971,42 +1208,61 @@ def delete_contact(contact_id: int) -> None:
     execute("DELETE FROM contacts WHERE id = ?", (contact_id,))
 
 
-def create_application(data: dict[str, Any]) -> int:
-    return execute(
-        """
-        INSERT INTO applications
-        (max_user_id, vacancy_id, vacancy_title, full_name, age, phone, education,
-         military_service, preferred_time, comment, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?)
-        """,
-        (
-            data.get("max_user_id"),
-            data.get("vacancy_id"),
-            data.get("vacancy_title"),
-            data.get("full_name"),
-            data.get("age"),
-            data.get("phone"),
-            data.get("education"),
-            data.get("military_service"),
-            data.get("preferred_time"),
-            data.get("comment"),
-            now_iso(),
-        ),
-    )
+def _matching_activity(max_user_id: Any, activity: ActivityContext | None) -> ActivityContext | None:
+    # In a shared chat the person completing an in-memory form can differ from its starter.
+    return activity if activity and str(max_user_id or "") == activity[2] else None
 
 
-def create_question(max_user_id: str, question_text: str, contact: str) -> int:
-    return execute(
-        "INSERT INTO questions (max_user_id, question_text, contact, status, created_at) VALUES (?, ?, ?, 'new', ?)",
-        (max_user_id, question_text, contact, now_iso()),
-    )
+def create_application(data: dict[str, Any], activity: ActivityContext | None = None) -> int:
+    activity = _matching_activity(data.get("max_user_id"), activity)
+    with get_connection() as conn:
+        application_id = int(conn.execute(
+            """
+            INSERT INTO applications
+            (max_user_id, vacancy_id, vacancy_title, full_name, age, phone, education,
+             military_service, preferred_time, comment, status, created_at, messenger_user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)
+            """,
+            (
+                data.get("max_user_id"), data.get("vacancy_id"), data.get("vacancy_title"),
+                data.get("full_name"), data.get("age"), data.get("phone"), data.get("education"),
+                data.get("military_service"), data.get("preferred_time"), data.get("comment"),
+                now_iso(), activity[0] if activity else None,
+            ),
+        ).lastrowid)
+        if activity:
+            _record_activity_event_conn(conn, activity, "vacancy_application_submitted", data.get("vacancy_id"))
+        return application_id
 
 
-def create_appeal(max_user_id: str, full_name: str, phone: str, appeal_text: str) -> int:
-    return execute(
-        "INSERT INTO appeals (max_user_id, full_name, phone, appeal_text, status, created_at) VALUES (?, ?, ?, ?, 'new', ?)",
-        (max_user_id, full_name, phone, appeal_text, now_iso()),
-    )
+def create_question(
+    max_user_id: str, question_text: str, contact: str,
+    activity: ActivityContext | None = None,
+) -> int:
+    activity = _matching_activity(max_user_id, activity)
+    with get_connection() as conn:
+        question_id = int(conn.execute(
+            "INSERT INTO questions (max_user_id, question_text, contact, status, created_at, messenger_user_id) VALUES (?, ?, ?, 'new', ?, ?)",
+            (max_user_id, question_text, contact, now_iso(), activity[0] if activity else None),
+        ).lastrowid)
+        if activity:
+            _record_activity_event_conn(conn, activity, "question_sent")
+        return question_id
+
+
+def create_appeal(
+    max_user_id: str, full_name: str, phone: str, appeal_text: str,
+    activity: ActivityContext | None = None,
+) -> int:
+    activity = _matching_activity(max_user_id, activity)
+    with get_connection() as conn:
+        appeal_id = int(conn.execute(
+            "INSERT INTO appeals (max_user_id, full_name, phone, appeal_text, status, created_at, messenger_user_id) VALUES (?, ?, ?, ?, 'new', ?, ?)",
+            (max_user_id, full_name, phone, appeal_text, now_iso(), activity[0] if activity else None),
+        ).lastrowid)
+        if activity:
+            _record_activity_event_conn(conn, activity, "appeal_sent")
+        return appeal_id
 
 
 def _archive_where(view: str, alias: str = "") -> str:
