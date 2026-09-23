@@ -111,6 +111,18 @@ class MaxAPI:
                 return self._send_message_payload(params, {"text": text})
             raise
 
+    def send_message_once(
+        self, text: str, chat_id: str | None = None, user_id: str | None = None,
+        keyboard: dict[str, Any] | None = None,
+    ) -> Any:
+        """One POST only; the interest outbox decides what can safely be retried."""
+        if not text or not (chat_id or user_id):
+            raise MaxApiError("Для отправки сообщения нужны text и chat_id или user_id")
+        payload: dict[str, Any] = {"text": text}
+        if keyboard:
+            payload["attachments"] = [keyboard]
+        return self._request("POST", "/messages", params={"chat_id": chat_id} if chat_id else {"user_id": user_id}, json=payload)
+
     def set_bot_commands(
         self,
         commands: list[dict[str, str]],
