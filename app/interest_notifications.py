@@ -82,9 +82,9 @@ def _due(session: dict[str, Any], mode: str) -> str:
 
 
 def _cooldown_until(conn: Any, admin_id: int, user_id: int) -> str | None:
-    row = conn.execute("""SELECT MAX(d.sent_at) AS last_sent FROM interest_deliveries d
+    row = conn.execute("""SELECT MAX(COALESCE(d.sent_at, d.updated_at)) AS last_sent FROM interest_deliveries d
         JOIN user_sessions s ON s.id = d.session_id
-        WHERE d.admin_id = ? AND s.messenger_user_id = ? AND d.status = 'sent'""", (admin_id, user_id)).fetchone()
+        WHERE d.admin_id = ? AND s.messenger_user_id = ? AND d.status IN ('sent', 'uncertain')""", (admin_id, user_id)).fetchone()
     return stamp(parse(row["last_sent"]) + timedelta(hours=24)) if row and row["last_sent"] else None
 
 

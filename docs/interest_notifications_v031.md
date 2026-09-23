@@ -37,7 +37,8 @@ The MAX interest send path performs one POST. A confirmed success becomes `sent`
 HTTP 429 retries at increasing intervals, with at most five attempts. Permanent
 4xx errors stop retrying. Timeout, connection failure, HTTP 408/5xx, an expired
 in-flight claim, or another ambiguous result becomes `uncertain` and is never
-automatically resent: MAX may already have accepted the POST. An expired claim
+automatically resent: MAX may already have accepted the POST. An uncertain send
+also conservatively counts toward the 24-hour cooldown. An expired claim
 before the network attempt can safely return to `pending`. This protects HR from
 duplicate alerts at the cost of a possible missed alert after an ambiguous result.
 The normal application/question/appeal notification path is unchanged.

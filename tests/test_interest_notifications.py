@@ -281,6 +281,37 @@ class InterestTests(unittest.TestCase):
             interest.run_once(failed_api, BASE + timedelta(days=4))
             self.assertEqual(failed_api.attempts, 1)
 
+    def test_uncertain_send_blocks_repeat_during_cooldown(self) -> None:
+        admin = self.admin("hr", "1h")
+        first = self.candidate()
+        api = FakeAPI([requests.exceptions.Timeout()])
+        interest.run_once(api, BASE + timedelta(hours=1))
+        self.assertEqual(self.delivery(admin, first)["status"], "uncertain")
+        second = self.candidate(at=BASE + timedelta(hours=4))
+        interest.run_once(api, BASE + timedelta(hours=5))
+        self.assertEqual(api.attempts, 1)
+        self.assertEqual(self.delivery(admin, second)["due_at"], iso(BASE + timedelta(hours=25)))
+        interest.run_once(api, BASE + timedelta(hours=24, minutes=59))
+        self.assertEqual(api.attempts, 1)
+        interest.run_once(api, BASE + timedelta(hours=25))
+        self.assertEqual(api.attempts, 2)
+
+    def test_429_backoff_stops_after_five_attempts(self) -> None:
+        admin = self.admin("hr", "1h")
+        ctx = self.candidate()
+        api = FakeAPI([http_error(429) for _ in range(5)])
+        attempts = [BASE + timedelta(hours=1), BASE + timedelta(hours=1, minutes=5),
+                    BASE + timedelta(hours=1, minutes=20), BASE + timedelta(hours=2, minutes=20),
+                    BASE + timedelta(hours=5, minutes=20)]
+        expected_next = [attempts[1], attempts[2], attempts[3], attempts[4], None]
+        for index, when in enumerate(attempts):
+            interest.run_once(api, when)
+            row = self.delivery(admin, ctx)
+            self.assertEqual(row["attempt_count"], index + 1)
+            self.assertEqual(row["next_attempt_at"], iso(expected_next[index]) if expected_next[index] else None)
+        interest.run_once(api, BASE + timedelta(days=2))
+        self.assertEqual(api.attempts, 5)
+
     def test_daily_boundary_digest_and_history_tokens(self) -> None:
         admin = self.admin("hr", "daily")
         first = self.candidate("first")
