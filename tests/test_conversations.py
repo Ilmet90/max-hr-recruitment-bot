@@ -52,6 +52,15 @@ def update(user: str, text: str, mid: str | None, *, kind: str = "message_create
     }}
 
 
+def realistic_callback(user: str, payload: str, callback_id: str, *, actor_key: str = "user_id") -> dict:
+    return {"update_type": "message_callback",
+            "callback": {"callback_id": callback_id, "payload": payload,
+                         "user": {actor_key: user}},
+            "message": {"sender": {"user_id": "bot-user", "is_bot": True},
+                        "recipient": {"chat_type": "dialog"},
+                        "body": {"mid": "original-bot-message"}}}
+
+
 class ConversationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -326,6 +335,68 @@ class ConversationTests(unittest.TestCase):
         db.set_admin_flags(admin["id"], 0, 1)
         self.process(update("hr", "No permission", "no-rights-mid"))
         self.assertEqual(db.fetch_one("SELECT COUNT(*) n FROM conversation_messages WHERE direction = 'outbound'")["n"], 1)
+
+    def test_real_callback_actor_opens_reply_and_rejects_non_staff(self) -> None:
+        ctx = self.candidate()
+        db.create_question("candidate", "Q", "нет", ctx)
+        self.admin("hr")
+        self.admin("bot-user")  # Even a known sender cannot replace callback.user as actor.
+        token = conv.get_by_user(ctx[0])["reply_token"]
+        event = realistic_callback("hr", f"cr:{token}", "real-cr")
+        self.process(event)
+        self.assertEqual(bot.reply_states["hr"]["messenger_user_id"], ctx[0])
+        self.assertNotIn("bot-user", bot.reply_states)
+        self.assertEqual(self.api.sent[-1][1]["user_id"], "hr")
+        self.assertFalse(self.api.sent[-1][1].get("chat_id"))
+        self.assertIn("Введите сообщение для", self.api.sent[-1][0])
+        self.assertIn("Для отмены: /cancel", self.api.sent[-1][0])
+        self.assertTrue(conv.update_was_processed("callback:real-cr"))
+
+        bot.reply_states.clear()
+        sent_before = len(self.api.sent)
+        self.process(realistic_callback("outsider", f"cr:{token}", "non-hr-cr"))
+        self.assertEqual(bot.reply_states, {})
+        self.assertEqual(len(self.api.sent), sent_before)
+        conflicting = realistic_callback("outsider", f"cr:{token}", "non-hr-top-level")
+        conflicting["user"] = {"user_id": "hr"}
+        self.process(conflicting)
+        self.assertEqual(bot.reply_states, {})
+        self.assertEqual(len(self.api.sent), sent_before)
+        self.process(realistic_callback("hr", "cr:invalid", "invalid-cr"))
+        self.assertEqual(bot.reply_states, {})
+        self.assertEqual(len(self.api.sent), sent_before)
+
+        self.process(realistic_callback("hr", f"cr:{token}", "real-cr-id", actor_key="id"))
+        self.assertEqual(bot.reply_states["hr"]["messenger_user_id"], ctx[0])
+
+    def test_real_callback_actor_interest_history_digest_and_reply(self) -> None:
+        base = datetime(2026, 10, 1, 9, tzinfo=timezone.utc)
+        db.set_setting("interest_notifications_activated_at", interest.stamp(base - timedelta(days=1)))
+        admin = self.admin("hr")
+        db.execute("UPDATE admins SET interest_mode = 'daily', interest_mode_changed_at = ? WHERE id = ?",
+                   (interest.stamp(base - timedelta(days=1)), admin["id"]))
+        ctx = db.touch_candidate("max", "candidate", {"display_name": "Candidate"}, interest.stamp(base))
+        db.record_activity_event(ctx, "vacancies_opened", at=interest.stamp(base))
+        interest.run_once(self.api, datetime(2026, 10, 2, 6, tzinfo=timezone.utc))
+        digest = db.fetch_one("SELECT * FROM interest_digests WHERE admin_id = ?", (admin["id"],))
+        delivery = db.fetch_one("SELECT * FROM interest_deliveries WHERE admin_id = ?", (admin["id"],))
+        self.assertEqual(digest["status"], "sent")
+        self.assertEqual(delivery["status"], "sent")
+        for action, token, expected in (("id", digest["action_token"], "Пользователи сводки"),
+                                        ("ih", delivery["action_token"], "История активности")):
+            self.process(realistic_callback("hr", f"{action}:{token}", f"real-{action}"))
+            self.assertIn(expected, self.api.sent[-1][0])
+            self.assertEqual(self.api.sent[-1][1]["user_id"], "hr")
+        self.process(realistic_callback("hr", f"ir:{delivery['action_token']}", "real-ir"))
+        self.assertEqual(bot.reply_states["hr"]["messenger_user_id"], ctx[0])
+        self.assertIn("Введите сообщение для", self.api.sent[-1][0])
+        self.assertEqual(self.api.sent[-1][1]["user_id"], "hr")
+
+        bot.reply_states.clear()
+        sent_before = len(self.api.sent)
+        self.process(realistic_callback("bot-user", f"ir:{delivery['action_token']}", "bot-ir"))
+        self.assertEqual(bot.reply_states, {})
+        self.assertEqual(len(self.api.sent), sent_before)
 
     def test_staff_selection_replaces_candidate(self) -> None:
         first, second = self.candidate("first"), self.candidate("second")

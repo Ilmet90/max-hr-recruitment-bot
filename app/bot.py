@@ -1480,8 +1480,11 @@ def _handle_callback(api: MaxAPI, update: dict[str, Any]) -> None:
                dict_value(callback_message, "chat", "type") or dict_value(update, "chat", "type") or "")
     if update.get("is_channel") or (context and str(context).lower() not in {"dialog", "private", "personal"}):
         return
-    payload = str((update.get("callback") or {}).get("payload") or "")
-    user_id = extract_user_id(update)
+    callback = update.get("callback") if isinstance(update.get("callback"), dict) else {}
+    payload = str(callback.get("payload") or "")
+    user_id = str(dict_value(callback, "user", "user_id")
+                  or dict_value(callback, "user", "id")
+                  or extract_user_id(update) or "")
     chat_id = extract_chat_id(update)
     admin = db.get_admin_by_user_id(user_id) if user_id else None
     if not has_staff_access(admin):
