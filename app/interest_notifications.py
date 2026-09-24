@@ -93,7 +93,7 @@ def _eligible(conn: Any, admin: dict[str, Any], session: dict[str, Any]) -> bool
     contacted = conn.execute("""SELECT 1 FROM conversation_messages m
         JOIN conversations c ON c.id = m.conversation_id
         WHERE c.messenger_user_id = ? AND m.direction = 'outbound'
-        AND m.delivery_status IN ('pending', 'sending', 'sent', 'uncertain')
+        AND m.delivery_status IN ('sent', 'uncertain')
         AND m.created_at >= ? LIMIT 1""", (session["messenger_user_id"], session["started_at"])).fetchone()
     return (allowed_admin(admin) and admin["interest_mode"] != "off"
             and session["meaningful_activity"] == 1 and not _converted(conn, session)
@@ -112,7 +112,7 @@ def materialize(at: datetime | None = None) -> None:
             AND s.last_activity_at >= (SELECT value FROM settings WHERE key = 'interest_notifications_activated_at')
             AND NOT EXISTS (SELECT 1 FROM conversation_messages m JOIN conversations c ON c.id = m.conversation_id
                 WHERE c.messenger_user_id = s.messenger_user_id AND m.direction = 'outbound'
-                AND m.delivery_status IN ('pending', 'sending', 'sent', 'uncertain')
+                AND m.delivery_status IN ('sent', 'uncertain')
                 AND m.created_at >= s.started_at)""")]
         for admin in admins:
             for session in sessions:

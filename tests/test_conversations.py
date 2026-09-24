@@ -227,6 +227,11 @@ class ConversationTests(unittest.TestCase):
         uncertain = db.fetch_one("SELECT id FROM conversation_messages WHERE request_key = 'timeout'")
         with self.assertRaises(ValueError):
             conv.retry_failed(API(), uncertain["id"], admin, "unsafe")
+        empty_response = API()
+        empty_response.send_message_once = lambda text, **kwargs: {}
+        missing_mid = conv.send_outbound(empty_response, ctx[0], admin, "No MID", "missing-mid")
+        self.assertEqual((missing_mid["delivery_status"], missing_mid["last_error_code"], missing_mid["sent_at"]),
+                         ("uncertain", "missing_message_id", None))
 
     def test_validation_and_superadmin(self) -> None:
         ctx = self.candidate()
@@ -349,6 +354,27 @@ class ConversationTests(unittest.TestCase):
         interest.materialize(base + timedelta(hours=5))
         self.assertEqual(db.fetch_one("SELECT status FROM interest_deliveries WHERE id = ?", (delivery["id"],))["status"], "cancelled")
         self.assertIsNone(interest.candidate_for_token(delivery["action_token"], admin))
+
+    def test_failed_outbound_does_not_suppress_pending_interest(self) -> None:
+        base = datetime.now(timezone.utc) - timedelta(days=1)
+        db.set_setting("interest_notifications_activated_at", interest.stamp(base))
+        admin = self.admin()
+        ctx = db.touch_candidate("max", "candidate", {"display_name": "Candidate"},
+                                 interest.stamp(base + timedelta(hours=1)))
+        db.record_activity_event(ctx, "vacancies_opened", at=interest.stamp(base + timedelta(hours=1)))
+        interest.materialize(base + timedelta(hours=2))
+        delivery = db.fetch_one("SELECT * FROM interest_deliveries WHERE admin_id = ?", (admin["id"],))
+        self.assertEqual(delivery["status"], "pending")
+        pending, _ = conv.create_outbound(ctx[0], admin, "Unsent", "not-sent")
+        self.assertEqual(db.fetch_one("SELECT status FROM interest_deliveries WHERE id = ?", (delivery["id"],))["status"], "pending")
+        interest.materialize(base + timedelta(hours=2))
+        self.assertEqual(db.fetch_one("SELECT status FROM interest_deliveries WHERE id = ?", (delivery["id"],))["status"], "pending")
+        self.assertEqual(db.fetch_one("SELECT delivery_status FROM conversation_messages WHERE id = ?", (pending["id"],))["delivery_status"], "pending")
+        failed = conv.send_outbound(API(http_error(400)), ctx[0], admin, "Rejected", "rejected")
+        self.assertEqual(failed["delivery_status"], "failed")
+        self.assertEqual(db.fetch_one("SELECT status FROM interest_deliveries WHERE id = ?", (delivery["id"],))["status"], "pending")
+        interest.materialize(base + timedelta(hours=2))
+        self.assertEqual(db.fetch_one("SELECT status FROM interest_deliveries WHERE id = ?", (delivery["id"],))["status"], "pending")
 
     def test_interest_single_reply_creates_conversation_only_on_send(self) -> None:
         base = datetime.now(timezone.utc) - timedelta(days=1)

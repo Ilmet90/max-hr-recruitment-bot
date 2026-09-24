@@ -319,10 +319,6 @@ def create_outbound(messenger_user_id: int, admin: dict[str, Any], text: str,
              admin.get("id"), text, request_key, now)).lastrowid
         conn.execute("UPDATE conversations SET status = 'open', updated_at = ?, last_message_at = ? WHERE id = ?",
                      (now, now, conversation["id"]))
-        # An HR has already contacted this candidate; queued interest notices are stale.
-        conn.execute("""UPDATE interest_deliveries SET status = 'cancelled', updated_at = ?
-            WHERE status IN ('pending', 'claimed', 'batched', 'failed') AND session_id IN
-            (SELECT id FROM user_sessions WHERE messenger_user_id = ?)""", (now, messenger_user_id))
         return dict(conn.execute("SELECT * FROM conversation_messages WHERE id = ?", (message_id,)).fetchone()), True
 
 
@@ -344,7 +340,10 @@ def send_outbound(api: Any, messenger_user_id: int, admin: dict[str, Any], text:
     try:
         result = api.send_message_once(text, user_id=user["external_user_id"])
         external_id = str(((result or {}).get("message") or {}).get("body", {}).get("mid") or (result or {}).get("message_id") or "") or None
-        status = "sent"
+        if external_id:
+            status = "sent"
+        else:
+            error = "missing_message_id"
     except requests.exceptions.HTTPError as exc:
         code = exc.response.status_code if exc.response is not None else None
         status = "uncertain" if code is None or code >= 500 else "failed"
@@ -358,6 +357,11 @@ def send_outbound(api: Any, messenger_user_id: int, admin: dict[str, Any], text:
         conn.execute("""UPDATE conversation_messages SET delivery_status = ?, last_error_code = ?,
             external_message_id = ?, sent_at = ? WHERE id = ? AND delivery_status = 'sending'""",
             (status, error, external_id, db.utc_now_iso() if status == "sent" else None, message["id"]))
+        if status in {"sent", "uncertain"}:
+            conn.execute("""UPDATE interest_deliveries SET status = 'cancelled', updated_at = ?
+                WHERE status IN ('pending', 'claimed', 'batched', 'failed') AND session_id IN
+                (SELECT id FROM user_sessions WHERE messenger_user_id = ?)""",
+                (db.utc_now_iso(), messenger_user_id))
         return dict(conn.execute("SELECT * FROM conversation_messages WHERE id = ?", (message["id"],)).fetchone())
 
 
