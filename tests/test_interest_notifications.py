@@ -163,6 +163,21 @@ class InterestTests(unittest.TestCase):
         self.assertEqual(db.get_admin(valid["id"])["interest_mode"], "3h")
         self.assertEqual(len(self.api.sent), 1)
 
+    def test_interest_and_history_link_candidate_without_changing_callback_buttons(self) -> None:
+        admin = self.admin("hr", "1h")
+        ctx = self.candidate("123")
+        db.touch_candidate("max", "123", {"first_name": "Валерий", "last_name": "Васкул"}, iso(BASE))
+        interest.run_once(self.api, BASE + timedelta(hours=1))
+        self.assertEqual(len(self.api.sent), 1)
+        text, kwargs = self.api.sent[0]
+        self.assertIn("[Валерий Васкул](max://user/123)", text)
+        self.assertEqual(kwargs["format"], "markdown")
+        self.assertEqual(kwargs["keyboard"]["payload"]["buttons"][0][0]["payload"][:3], "ih:")
+        token = self.delivery(admin, ctx)["action_token"]
+        history, keyboard = interest.history_for_token(token, admin)
+        self.assertIn("[Валерий Васкул](max://user/123)", history)
+        self.assertEqual(keyboard["payload"]["buttons"][0][0]["payload"], f"ir:{token}")
+
     def test_mode_change_cancels_pending_and_requires_new_interest(self) -> None:
         admin = self.admin("hr", "3h")
         ctx = self.candidate()

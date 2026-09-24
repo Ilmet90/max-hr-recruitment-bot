@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import re
 import secrets
 import tempfile
 import unittest
@@ -13,6 +14,8 @@ import requests
 from starlette.requests import Request
 
 from app import admin_web, bot, conversations as conv, db, interest_notifications as interest
+from app.max_api import MaxAPI
+from app.max_mentions import candidate_mention, escape_markdown
 
 
 def http_error(code: int) -> requests.exceptions.HTTPError:
@@ -221,6 +224,9 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(first["id"], duplicate["id"])
         self.assertEqual(first["delivery_status"], "sent")
         self.assertEqual(self.api.attempts, 1)
+        self.assertEqual(first["text"], "Здравствуйте")
+        self.assertEqual(self.api.sent[0][0], conv.candidate_outbound_text("Здравствуйте"))
+        self.assertEqual(self.api.sent[0][1]["keyboard"], bot.MENU_ONLY_KEYBOARD)
         for key, failure, expected in (("bad", http_error(400), "failed"),
                                        ("limit", http_error(429), "failed"),
                                        ("server", http_error(503), "uncertain"),
@@ -230,8 +236,12 @@ class ConversationTests(unittest.TestCase):
             self.assertEqual(result["delivery_status"], expected)
             self.assertEqual(api.attempts, 1)
         failed = db.fetch_one("SELECT id FROM conversation_messages WHERE request_key = 'bad'")
-        retried = conv.retry_failed(API(), failed["id"], admin, "retry-key")
+        retry_api = API()
+        retried = conv.retry_failed(retry_api, failed["id"], admin, "retry-key")
         self.assertEqual(retried["delivery_status"], "sent")
+        self.assertEqual(retried["text"], "bad")
+        self.assertEqual(retry_api.sent[0][0], conv.candidate_outbound_text("bad"))
+        self.assertEqual(retry_api.sent[0][1]["keyboard"], bot.MENU_ONLY_KEYBOARD)
         self.assertEqual(db.fetch_one("SELECT delivery_status FROM conversation_messages WHERE id = ?", (failed["id"],))["delivery_status"], "failed")
         uncertain = db.fetch_one("SELECT id FROM conversation_messages WHERE request_key = 'timeout'")
         with self.assertRaises(ValueError):
@@ -516,9 +526,169 @@ class ConversationTests(unittest.TestCase):
             self.assertEqual(response.status_code, 303)
             self.assertEqual(again.status_code, 303)
             self.assertEqual(api.attempts, 1)
+            self.assertEqual(api.sent[0][0], conv.candidate_outbound_text("Hello"))
+            self.assertEqual(api.sent[0][1]["keyboard"], bot.MENU_ONLY_KEYBOARD)
+            self.assertEqual(db.fetch_one("SELECT text FROM conversation_messages WHERE request_key = 'web-idempotent'")["text"], "Hello")
             page = admin_web.conversation_page(request, cid)
             self.assertEqual(page.status_code, 200)
         self.assertEqual(conv.list_conversations(hr)[0]["unread"], 0)
+
+    def test_candidate_outbound_menu_navigation_and_free_reply(self) -> None:
+        ctx = self.candidate()
+        admin = self.admin()
+        sent = conv.send_outbound(self.api, ctx[0], admin, "24/7", "menu-ux")
+        delivered, kwargs = self.api.sent[-1]
+        self.assertIn("Сообщение от отдела кадров", delivered)
+        self.assertIn("24/7", delivered)
+        self.assertIn("Ответьте обычным сообщением.", delivered)
+        self.assertEqual(kwargs["keyboard"], bot.MENU_ONLY_KEYBOARD)
+        self.assertEqual(sent["text"], "24/7")
+        self.process(update("candidate", "Главное меню", "menu-button"))
+        self.assertEqual(self.api.sent[-1][0], bot.main_menu())
+        self.process(update("candidate", "/menu", "menu-command"))
+        self.assertEqual(self.api.sent[-1][0], bot.main_menu())
+        self.process(update("candidate", "Вакансии", "vacancy-nav"))
+        self.process(update("candidate", "Условия службы", "conditions-nav"))
+        self.assertEqual(db.fetch_one("SELECT COUNT(*) n FROM conversation_messages WHERE direction = 'inbound'")["n"], 0)
+        self.process(update("candidate", "Спасибо, понял", "free-reply"))
+        self.assertEqual(db.fetch_one("SELECT text FROM conversation_messages ORDER BY id DESC LIMIT 1")["text"], "Спасибо, понял")
+
+    def test_candidate_outbound_respects_max_transport_limit(self) -> None:
+        ctx = self.candidate()
+        admin = self.admin()
+        message = "x" * conv.MAX_OUTBOUND_TEXT_LENGTH
+        conv.send_outbound(self.api, ctx[0], admin, message, "max-length")
+        self.assertEqual(len(self.api.sent[-1][0]), 4000)
+        self.assertEqual(db.fetch_one("SELECT text FROM conversation_messages WHERE request_key = 'max-length'")["text"], message)
+        with self.assertRaises(ValueError):
+            conv.send_outbound(self.api, ctx[0], admin, message + "x", "too-long")
+
+    def test_staff_send_uses_same_candidate_presentation(self) -> None:
+        ctx = self.candidate()
+        db.create_question("candidate", "Q", "нет", ctx)
+        self.admin()
+        token = conv.get_by_user(ctx[0])["reply_token"]
+        self.process(realistic_callback("hr", f"cr:{token}", "staff-ux"))
+        self.process(update("hr", "Ответ HR", "staff-ux-message"))
+        delivered = [(text, kwargs) for text, kwargs in self.api.sent if kwargs.get("user_id") == "candidate" and text.startswith("Сообщение от отдела кадров")]
+        self.assertEqual(len(delivered), 1)
+        self.assertEqual(delivered[0][0], conv.candidate_outbound_text("Ответ HR"))
+        self.assertEqual(delivered[0][1]["keyboard"], bot.MENU_ONLY_KEYBOARD)
+        self.assertEqual(db.fetch_one("SELECT text FROM conversation_messages WHERE direction = 'outbound'")["text"], "Ответ HR")
+
+    def test_candidate_mentions_and_structured_notifications(self) -> None:
+        ctx = db.touch_candidate("max", "123", {"first_name": "Валерий", "last_name": "Васкул"})
+        self.admin()
+        db.create_question("123", "Первый вопрос", "нет", ctx)
+        self.process(update("123", "Спасибо [подробнее](max://user/999)", "free-mention"))
+        text, kwargs = self.api.sent[-1]
+        self.assertIn("[Валерий Васкул](max://user/123)", text)
+        self.assertIn(r"\[подробнее\]", text)
+        self.assertEqual(kwargs["format"], "markdown")
+        self.assertEqual(kwargs["keyboard"]["payload"]["buttons"][0][0]["type"], "callback")
+        for scenario, state, answer in (
+            ("question", {"scenario": "question", "step": "contact", "question": "Q [unsafe](url)"}, "нет"),
+            ("appeal", {"scenario": "appeal", "step": "text", "full_name": "A *bad*", "phone": "123"}, "Hello"),
+            ("application", {"scenario": "application", "step": "confirm", "data": {"max_user_id": "123", "vacancy_title": "Role", "full_name": "Name"}}, "Да"),
+        ):
+            with self.subTest(scenario=scenario):
+                bot.user_states["chat-123"] = state
+                before = len(self.api.sent)
+                self.process(update("123", answer, f"structured-{scenario}"))
+                notifications = [(text, kwargs) for text, kwargs in self.api.sent[before:] if kwargs.get("format") == "markdown"]
+                self.assertEqual(len(notifications), 1)
+                self.assertIn("[Валерий Васкул](max://user/123)", notifications[0][0])
+                self.assertTrue(notifications[0][1]["keyboard"])
+
+    def test_web_chat_human_dates_bubbles_and_escaped_content(self) -> None:
+        at = "2026-09-24T10:58:11.119Z"
+        ctx = db.touch_candidate("max", "123", {"display_name": "Валерий Васкул", "username": "valery"}, at)
+        self.admin()
+        db.create_question("123", "<script>question</script>", "нет", ctx)
+        db.record_activity_event(ctx, "vacancies_opened", at=at)
+        conv.add_inbound(ctx[0], "<script>alert(1)</script>\nВторая строка", "web-xss")
+        conv.send_outbound(self.api, ctx[0], self.admin("other"), "Ответ HR", "web-view")
+        cid = conv.get_by_user(ctx[0])["id"]
+        db.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (at, cid))
+        db.execute("UPDATE conversation_messages SET created_at = ? WHERE conversation_id = ?", (at, cid))
+        db.execute("UPDATE questions SET created_at = ? WHERE messenger_user_id = ?", (at, ctx[0]))
+        request = Request({"type": "http", "method": "GET", "path": "/admin/conversations", "headers": [], "query_string": b""})
+        hr = db.get_admin_by_user_id("hr")
+        with patch.object(admin_web, "current_admin", return_value=hr):
+            listing = admin_web.conversations_page(request).body.decode()
+            detail = admin_web.conversation_page(request, cid).body.decode()
+        self.assertIn("24.09.2026 13:58", listing)
+        self.assertNotIn(at, listing)
+        self.assertIn('class="badge unread-badge"', listing)
+        self.assertIn(f'href="/admin/conversations/{cid}"', listing)
+        self.assertIn('class="chat-row inbound"', detail)
+        self.assertIn('class="chat-row outbound"', detail)
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", detail)
+        self.assertNotIn("<script>alert(1)</script>", detail)
+        self.assertIn("24.09.2026 13:58", detail)
+        self.assertNotIn(at, detail)
+        self.assertIn("Связанные записи", detail)
+        self.assertIn("Последняя активность", detail)
+        self.assertIn("Ответ HR", detail)
+        self.assertNotIn("Сообщение от отдела кадров", detail)
+        self.assertNotIn("Открыть профиль MAX", detail)
+        self.assertIn("Отправлено", detail)
+        self.assertIn(f'maxlength="{conv.MAX_OUTBOUND_TEXT_LENGTH}"', detail)
+
+    def test_web_delivery_labels_and_retry_only_for_failed_messages(self) -> None:
+        ctx = self.candidate()
+        hr = self.admin()
+        first = conv.send_outbound(API(http_error(400)), ctx[0], hr, "Первый", "failed-one")
+        second = conv.send_outbound(API(http_error(400)), ctx[0], hr, "Второй", "failed-two")
+        uncertain = conv.send_outbound(API(requests.exceptions.Timeout()), ctx[0], hr, "Третий", "uncertain-one")
+        cid = conv.get_by_user(ctx[0])["id"]
+        request = Request({"type": "http", "method": "GET", "path": f"/admin/conversations/{cid}", "headers": [], "query_string": b""})
+        with patch.object(admin_web, "current_admin", return_value=hr):
+            detail = admin_web.conversation_page(request, cid).body.decode()
+        self.assertIn("Ошибка отправки", detail)
+        self.assertIn("Результат не подтверждён", detail)
+        self.assertIn(f'/retry/{first["id"]}', detail)
+        self.assertIn(f'/retry/{second["id"]}', detail)
+        self.assertNotIn(f'/retry/{uncertain["id"]}', detail)
+        retry_keys = re.findall(r'<form method="post" action="[^"]+/retry/\d+" class="chat-retry">\s*<input type="hidden" name="request_key" value="([^"]+)"', detail)
+        self.assertEqual(len(retry_keys), 2)
+        self.assertEqual(len(set(retry_keys)), 2)
+
+
+class ConversationUXFormatterTests(unittest.TestCase):
+    def test_max_mention_uses_profile_name_and_validated_id(self) -> None:
+        self.assertEqual(candidate_mention({"first_name": "Валерий", "last_name": "Васкул", "external_user_id": "123"}),
+                         "[Валерий Васкул](max://user/123)")
+        self.assertEqual(candidate_mention({"first_name": "Валерий", "external_user_id": "123"}),
+                         "[Валерий](max://user/123)")
+        self.assertEqual(candidate_mention({"first_name": "Va]lery", "last_name": "A*B", "external_user_id": "123"}),
+                         r"[Va\]lery A\*B](max://user/123)")
+        self.assertEqual(candidate_mention({"first_name": "Name", "display_name": "Plain", "external_user_id": "123)"}), "Plain")
+        self.assertEqual(candidate_mention({"first_name": "Name", "external_user_id": "invalid"}), "Name")
+        self.assertEqual(candidate_mention({"first_name": "Name", "display_name": "Plain", "external_user_id": "0"}), "Plain")
+        self.assertEqual(candidate_mention({"first_name": "Name", "display_name": "Plain", "external_user_id": "9223372036854775808"}), "Plain")
+        self.assertEqual(candidate_mention({"first_name": "Name", "display_name": "Plain", "external_user_id": "9" * 5000}), "Plain")
+        self.assertEqual(candidate_mention({"display_name": "[Plain](evil)", "external_user_id": "123"}),
+                         r"\[Plain\]\(evil\)")
+        self.assertEqual(escape_markdown("[x](max://user/999)"), r"\[x\]\(max://user/999\)")
+
+    def test_moscow_datetime_fallbacks(self) -> None:
+        for value in ("2026-09-24T10:58:11.119Z", "2026-09-24T10:58:11Z",
+                      "2026-09-24T10:58:11+00:00", "2026-09-24T13:58:11+03:00",
+                      "2026-09-24T10:58:11"):
+            with self.subTest(value=value):
+                self.assertEqual(admin_web.format_msk_datetime(value), "24.09.2026 13:58")
+        for value in (None, "", "legacy garbage"):
+            self.assertEqual(admin_web.format_msk_datetime(value), "—")
+
+    def test_max_api_sends_markdown_format_with_callback_keyboard(self) -> None:
+        api = MaxAPI("unused")
+        keyboard = bot.MENU_ONLY_KEYBOARD
+        with patch.object(api, "_request", return_value={}) as request:
+            api.send_message_once("[Name](max://user/123)", user_id="123", keyboard=keyboard, format="markdown")
+        payload = request.call_args.kwargs["json"]
+        self.assertEqual(payload["format"], "markdown")
+        self.assertEqual(payload["attachments"], [keyboard])
 
 
 if __name__ == "__main__":
