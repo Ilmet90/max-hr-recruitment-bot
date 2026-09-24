@@ -10,9 +10,18 @@ from typing import Any
 import requests
 
 from app import db
+from app.max_api import build_keyboard
 
 
 SOURCE_TABLES = {"question": "questions", "application": "applications", "appeal": "appeals"}
+OUTBOUND_PREFIX = "Сообщение от отдела кадров\n\n"
+OUTBOUND_SUFFIX = "\n\nОтветьте обычным сообщением."
+MAX_OUTBOUND_TEXT_LENGTH = 4000 - len(OUTBOUND_PREFIX) - len(OUTBOUND_SUFFIX)
+OUTBOUND_MENU_KEYBOARD = build_keyboard([["Главное меню"]])
+
+
+def candidate_outbound_text(text: str) -> str:
+    return f"{OUTBOUND_PREFIX}{text}{OUTBOUND_SUFFIX}"
 
 
 def ensure_conversations_schema() -> None:
@@ -294,8 +303,8 @@ def create_outbound(messenger_user_id: int, admin: dict[str, Any], text: str,
     if not _valid_admin(admin):
         raise PermissionError("HR access required")
     text = text.strip()
-    if not text or len(text) > 4000:
-        raise ValueError("Сообщение должно содержать от 1 до 4000 символов")
+    if not text or len(text) > MAX_OUTBOUND_TEXT_LENGTH:
+        raise ValueError(f"Сообщение должно содержать от 1 до {MAX_OUTBOUND_TEXT_LENGTH} символов")
     if not request_key or len(request_key) > 200:
         raise ValueError("Invalid request key")
     with db.get_connection() as conn:
@@ -338,7 +347,8 @@ def send_outbound(api: Any, messenger_user_id: int, admin: dict[str, Any], text:
         ON c.messenger_user_id = u.id WHERE c.id = ?""", (message["conversation_id"],))
     status, error, external_id = "uncertain", None, None
     try:
-        result = api.send_message_once(text, user_id=user["external_user_id"])
+        result = api.send_message_once(candidate_outbound_text(message["text"]),
+                                       user_id=user["external_user_id"], keyboard=OUTBOUND_MENU_KEYBOARD)
         external_id = str(((result or {}).get("message") or {}).get("body", {}).get("mid") or (result or {}).get("message_id") or "") or None
         if external_id:
             status = "sent"
