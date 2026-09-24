@@ -50,6 +50,42 @@ class DBFixture:
 
 class ActivityDBTests(DBFixture, unittest.TestCase):
 
+    def test_chat_id_migration_preserves_existing_user_and_is_concurrent_safe(self) -> None:
+        db.DATABASE_PATH.unlink()
+        with sqlite3.connect(db.DATABASE_PATH) as conn:
+            conn.execute("""CREATE TABLE messenger_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                messenger TEXT NOT NULL, external_user_id TEXT NOT NULL,
+                display_name TEXT, first_name TEXT, last_name TEXT, username TEXT, avatar_url TEXT,
+                first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
+                UNIQUE (messenger, external_user_id))""")
+            conn.execute("""INSERT INTO messenger_users
+                (messenger, external_user_id, display_name, first_seen_at, last_seen_at)
+                VALUES ('max', '63501621', 'Кандидат', ?, ?)""", (T0, T1))
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(lambda _: db.init_db(), range(2)))
+        db.init_db()
+        user = self.rows("messenger_users")[0]
+        self.assertEqual((user["external_user_id"], user["display_name"], user["first_seen_at"], user["last_seen_at"]),
+                         ("63501621", "Кандидат", T0, T1))
+        self.assertIsNone(user["external_chat_id"])
+        with db.get_connection() as conn:
+            column = next(row for row in conn.execute("PRAGMA table_info(messenger_users)")
+                          if row["name"] == "external_chat_id")
+            self.assertEqual((column["type"], column["notnull"]), ("TEXT", 0))
+
+    def test_chat_id_update_requires_existing_identity_and_valid_id(self) -> None:
+        user = db.touch_candidate("max", "63501621", at=T0)
+        self.assertTrue(db.update_messenger_user_chat_id("max", "63501621", 24053553))
+        self.assertTrue(db.update_messenger_user_chat_id("max", "63501621", "00024053554"))
+        self.assertEqual(db.fetch_one("SELECT external_chat_id FROM messenger_users WHERE id = ?", (user[0],))["external_chat_id"], "24053554")
+        for bad in (None, True, 0, -1, "-1", "+1", " 1", "1 ", "1.0", "1e3", "invalid", "9223372036854775808", "9" * 5000):
+            with self.subTest(bad=str(bad)[:30]):
+                self.assertFalse(db.update_messenger_user_chat_id("max", "63501621", bad))
+        self.assertFalse(db.update_messenger_user_chat_id("max", "unknown", 123))
+        self.assertEqual(db.fetch_one("SELECT external_chat_id FROM messenger_users WHERE id = ?", (user[0],))["external_chat_id"], "24053554")
+        self.assertTrue(db.update_messenger_user_chat_id("max", "63501621", 9223372036854775807))
+
     def test_fresh_schema_repeated_init_and_constraints(self) -> None:
         db.init_db()
         with db.get_connection() as conn:

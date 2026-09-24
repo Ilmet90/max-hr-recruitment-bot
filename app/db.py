@@ -353,6 +353,7 @@ def ensure_activity_schema() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 messenger TEXT NOT NULL CHECK (length(trim(messenger)) > 0),
                 external_user_id TEXT NOT NULL CHECK (length(trim(external_user_id)) > 0),
+                external_chat_id TEXT,
                 display_name TEXT, first_name TEXT, last_name TEXT,
                 username TEXT, avatar_url TEXT,
                 first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
@@ -381,8 +382,11 @@ def ensure_activity_schema() -> None:
                 vacancy_id INTEGER, metadata TEXT, created_at TEXT NOT NULL
             )
         """)
+        user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(messenger_users)")}
+        if "external_chat_id" not in user_columns:
+            conn.execute("ALTER TABLE messenger_users ADD COLUMN external_chat_id TEXT")
         expected = {
-            "messenger_users": {"id", "messenger", "external_user_id", "display_name", "first_name", "last_name", "username", "avatar_url", "first_seen_at", "last_seen_at"},
+            "messenger_users": {"id", "messenger", "external_user_id", "external_chat_id", "display_name", "first_name", "last_name", "username", "avatar_url", "first_seen_at", "last_seen_at"},
             "user_sessions": {"id", "messenger_user_id", "started_at", "last_activity_at", "meaningful_activity", "first_meaningful_at", "conversion_type", "converted_at", "interest_notification_due_at", "interest_notification_sent_at", "closed_at"},
             "user_activity_events": {"id", "messenger_user_id", "session_id", "event_type", "vacancy_id", "metadata", "created_at"},
         }
@@ -397,6 +401,9 @@ def ensure_activity_schema() -> None:
             }[table]
             if any(actual[name]["type"].upper() != kind or actual[name]["notnull"] != 1 for name, kind in required.items()):
                 raise RuntimeError(f"Unexpected {table} required column definition")
+        chat_column = {row["name"]: row for row in conn.execute("PRAGMA table_info(messenger_users)")}["external_chat_id"]
+        if chat_column["type"].upper() != "TEXT" or chat_column["notnull"]:
+            raise RuntimeError("Unexpected messenger_users.external_chat_id definition")
         for table, targets in {
             "user_sessions": {"messenger_user_id": "messenger_users"},
             "user_activity_events": {"messenger_user_id": "messenger_users", "session_id": "user_sessions"},
@@ -975,6 +982,20 @@ def touch_candidate(
                 (user_id, seen_at, seen_at),
             ).lastrowid)
     return user_id, session_id, external_user_id
+
+
+def update_messenger_user_chat_id(messenger: str, external_user_id: str, external_chat_id: object) -> bool:
+    from app.max_chat_ids import canonical_chat_id
+
+    chat_id = canonical_chat_id(external_chat_id)
+    if not chat_id or not messenger or not external_user_id:
+        return False
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE messenger_users SET external_chat_id = ? WHERE messenger = ? AND external_user_id = ?",
+            (chat_id, messenger, str(external_user_id)),
+        )
+        return bool(cursor.rowcount)
 
 
 def _record_activity_event_conn(

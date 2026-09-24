@@ -323,13 +323,37 @@ def extract_user_profile(update: dict[str, Any]) -> dict[str, str | None]:
     }
 
 
+def trusted_candidate_chat_id(update: dict[str, Any], user_id: str) -> Any | None:
+    """Only documented private MAX updates can bind a candidate to a dialog."""
+    if update.get("is_channel") is True:
+        return None
+    event_type = extract_update_type(update)
+    if event_type == "bot_started":
+        user = update.get("user")
+        if isinstance(user, dict) and not user.get("is_bot") and str(user.get("user_id") or "") == user_id:
+            return update.get("chat_id")
+    elif event_type == "message_created":
+        message = extract_message(update) or {}
+        sender = message.get("sender")
+        recipient = message.get("recipient")
+        if (isinstance(sender, dict) and not sender.get("is_bot")
+                and str(sender.get("user_id") or "") == user_id
+                and isinstance(recipient, dict) and recipient.get("chat_type") == "dialog"):
+            return recipient.get("chat_id")
+    return None
+
+
 def candidate_activity(update: dict[str, Any], user_id: str) -> db.ActivityContext | None:
     if not user_id:
         return None
     admin = db.get_admin_by_user_id(user_id)
     if admin and admin.get("approved") == 1 and admin.get("is_active") == 1 and admin.get("role") in {"hr_staff", "hr_head"}:
         return None
-    return db.touch_candidate("max", user_id, extract_user_profile(update))
+    activity = db.touch_candidate("max", user_id, extract_user_profile(update))
+    chat_id = trusted_candidate_chat_id(update, user_id)
+    if chat_id is not None and admin is None:
+        db.update_messenger_user_chat_id("max", user_id, chat_id)
+    return activity
 
 
 def track_candidate(
@@ -1540,8 +1564,9 @@ def handle_bot_started(api: MaxAPI, update: dict[str, Any]) -> None:
         return
     state_id = chat_id or user_id
     user_states.pop(state_id, None)
+    activity = candidate_activity(update, user_id)
     show_main_menu(api, chat_id, user_id=user_id)
-    track_candidate(candidate_activity(update, user_id), "bot_started")
+    track_candidate(activity, "bot_started")
 
 
 def handle_message(api: MaxAPI, message: dict[str, Any], update: dict[str, Any] | None = None) -> None:
