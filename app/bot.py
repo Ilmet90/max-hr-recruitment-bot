@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from app import db, conversations, interest_notifications, maintenance, trudvsem_import
 from app.admin_bot import notify_admins, notify_approvers
 from app.max_api import MaxAPI, build_keyboard, callback_keyboard
+from app.max_mentions import candidate_mention, escape_markdown
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -347,12 +348,13 @@ def send(
     text: str,
     user_id: str | None = None,
     keyboard: dict[str, Any] | None = None,
+    format: str | None = None,
 ) -> None:
     if chat_id:
-        api.send_message(text, chat_id=chat_id, keyboard=keyboard)
+        api.send_message(text, chat_id=chat_id, keyboard=keyboard, format=format)
         return
     if user_id:
-        api.send_message(text, user_id=user_id, keyboard=keyboard)
+        api.send_message(text, user_id=user_id, keyboard=keyboard, format=format)
         return
 
 
@@ -735,6 +737,13 @@ def appeal_notify_text(full_name: str, phone: str, appeal_text: str) -> str:
     return f"Новое сообщение через бота\n\nФИО:\n{full_name}\n\nТелефон:\n{phone}\n\nТекст:\n{appeal_text}\n\nДата:\n{db.now_iso()}"
 
 
+def candidate_notification(text: str, activity: db.ActivityContext | None) -> tuple[str, str | None]:
+    if not activity:
+        return text, None
+    user = db.fetch_one("SELECT * FROM messenger_users WHERE id = ?", (activity[0],)) or {}
+    return f"{escape_markdown(text)}\n\nКандидат в MAX: {candidate_mention(user)}", "markdown"
+
+
 def handle_application(
     api: MaxAPI, chat_id: str, state_id: str, user_id: str, text: str,
     state: dict[str, Any], activity: db.ActivityContext | None = None,
@@ -830,11 +839,8 @@ def handle_application(
     reply = reply_keyboard_for_user(activity[0] if activity else None)
     if reply:
         keyboard["payload"]["buttons"].extend(reply["payload"]["buttons"])
-    notify_admins(
-        api,
-        application_notify_text(data),
-        keyboard=keyboard,
-    )
+    notice, format = candidate_notification(application_notify_text(data), activity)
+    notify_admins(api, notice, keyboard=keyboard, format=format)
     user_states.pop(state_id, None)
     send(
         api,
@@ -859,8 +865,8 @@ def handle_question(
     contact = "" if normalize(text) == "нет" else text
     db.create_question(user_id, state["question"], contact, activity=activity,
                        question_mid=state.get("question_mid"), completion_mid=message_mid)
-    notify_admins(api, question_notify_text(state["question"], contact or "не указан"),
-                  keyboard=reply_keyboard_for_user(activity[0] if activity else None))
+    notice, format = candidate_notification(question_notify_text(state["question"], contact or "не указан"), activity)
+    notify_admins(api, notice, keyboard=reply_keyboard_for_user(activity[0] if activity else None), format=format)
     user_states.pop(state_id, None)
     send(api, chat_id, org_text("question_success_text"), user_id=user_id, keyboard=MENU_ONLY_KEYBOARD)
 
@@ -882,8 +888,8 @@ def handle_appeal(
         return
     db.create_appeal(user_id, state["full_name"], state["phone"], text, activity=activity,
                      appeal_mid=message_mid, completion_mid=message_mid)
-    notify_admins(api, appeal_notify_text(state["full_name"], state["phone"], text),
-                  keyboard=reply_keyboard_for_user(activity[0] if activity else None))
+    notice, format = candidate_notification(appeal_notify_text(state["full_name"], state["phone"], text), activity)
+    notify_admins(api, notice, keyboard=reply_keyboard_for_user(activity[0] if activity else None), format=format)
     user_states.pop(state_id, None)
     send(api, chat_id, org_text("appeal_success_text"), user_id=user_id, keyboard=MENU_ONLY_KEYBOARD)
 
@@ -1494,7 +1500,7 @@ def _handle_callback(api: MaxAPI, update: dict[str, Any]) -> None:
         result = (interest_notifications.history_for_token(token, admin) if action == "ih"
                   else interest_notifications.digest_for_token(token, admin))
         send(api, chat_id, result[0] if result else "История недоступна.", user_id=user_id,
-             keyboard=result[1] if result else None)
+             keyboard=result[1] if result else None, format="markdown" if result else None)
     elif action == "ir" and re.fullmatch(r"[0-9a-f]{16}", token):
         candidate = interest_notifications.candidate_for_token(token, admin)
         if candidate:
@@ -1521,9 +1527,8 @@ def _record_candidate_reply(api: MaxAPI, activity: db.ActivityContext | None,
     _, is_new = added
     if is_new:
         user = db.fetch_one("SELECT * FROM messenger_users WHERE id = ?", (activity[0],)) or {}
-        name = user.get("display_name") or user.get("username") or "кандидата"
-        notify_admins(api, f"Новое сообщение от {name}\n«{text[:500]}»",
-                      keyboard=reply_keyboard_for_user(activity[0]))
+        notify_admins(api, f"Новое сообщение от {candidate_mention(user)}\n«{escape_markdown(text[:500])}»",
+                      keyboard=reply_keyboard_for_user(activity[0]), format="markdown")
     return True
 
 
@@ -1600,7 +1605,8 @@ def handle_message(api: MaxAPI, message: dict[str, Any], update: dict[str, Any] 
                   if action.group(1) == "история активности"
                   else interest_notifications.digest_for_token(action.group(2), admin))
         if result:
-            send(api, chat_id, result[0], user_id=user_id, keyboard=result[1] or STAFF_BACK_KEYBOARD)
+            send(api, chat_id, result[0], user_id=user_id, keyboard=result[1] or STAFF_BACK_KEYBOARD,
+                 format="markdown")
         else:
             send(api, chat_id, "История недоступна.", user_id=user_id)
         return

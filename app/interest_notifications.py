@@ -12,6 +12,7 @@ import requests
 
 from app import db
 from app.max_api import MaxAPI, MaxApiError, callback_keyboard
+from app.max_mentions import candidate_identity, escape_markdown
 
 LOG = logging.getLogger(__name__)
 MSK = ZoneInfo("Europe/Moscow")
@@ -236,19 +237,22 @@ def _confirm_single_sending(delivery_id: int, token: str, now: str) -> bool:
         return True
 
 
-def _send_once(api: MaxAPI, admin: dict[str, Any], text: str, keyboard: dict[str, Any] | None = None) -> Any:
+def _send_once(api: MaxAPI, admin: dict[str, Any], text: str,
+               keyboard: dict[str, Any] | None = None, format: str | None = None) -> Any:
     chat_id = str(admin.get("chat_id") or "")
     user_id = str(admin.get("max_user_id") or "")
     if not chat_id and not user_id:
         raise ValueError("missing_recipient")
     try:
-        return api.send_message_once(text, chat_id=chat_id or None, user_id=None if chat_id else user_id, keyboard=keyboard)
+        return api.send_message_once(text, chat_id=chat_id or None, user_id=None if chat_id else user_id,
+                                     keyboard=keyboard, format=format)
     except requests.exceptions.HTTPError as exc:
         code = exc.response.status_code if exc.response is not None else None
         if code == 404 and chat_id and user_id:
-            return api.send_message_once(text, user_id=user_id, keyboard=keyboard)
+            return api.send_message_once(text, user_id=user_id, keyboard=keyboard, format=format)
         if code == 400 and keyboard:
-            return api.send_message_once(text, chat_id=chat_id or None, user_id=None if chat_id else user_id)
+            return api.send_message_once(text, chat_id=chat_id or None, user_id=None if chat_id else user_id,
+                                         format=format)
         raise
 
 
@@ -313,6 +317,10 @@ def _identity(user: dict[str, Any]) -> str:
     return " · ".join(parts) or "Пользователь MAX"
 
 
+def _candidate_markdown(text: str, user: dict[str, Any]) -> str:
+    return escape_markdown(text).replace(escape_markdown(_identity(user)), candidate_identity(user), 1)
+
+
 def _session_summary(session: dict[str, Any], user: dict[str, Any]) -> str:
     events = db.fetch_all("SELECT * FROM user_activity_events WHERE session_id = ? ORDER BY created_at, id", (session["id"],))
     views: dict[str, int] = {}
@@ -342,7 +350,7 @@ def _session_summary(session: dict[str, Any], user: dict[str, Any]) -> str:
 def _single_message(delivery: dict[str, Any], session: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     user = db.fetch_one("SELECT * FROM messenger_users WHERE id = ?", (session["messenger_user_id"],)) or {}
     token = delivery["action_token"]
-    return _session_summary(session, user)[:3350], callback_keyboard([
+    return _candidate_markdown(_session_summary(session, user), user)[:3350], callback_keyboard([
         [("История активности", f"ih:{token}")],
         [("Написать кандидату", f"ir:{token}")],
     ])
@@ -365,7 +373,7 @@ def process_singles(api: MaxAPI, now: str, limit: int = 20) -> None:
             continue
         error = None
         try:
-            _send_once(api, admin, message, keyboard)
+            _send_once(api, admin, message, keyboard, format="markdown")
         except Exception as exc:
             error = exc
         _finish("interest_deliveries", row["id"], token, error, now)
@@ -512,7 +520,7 @@ def process_daily(api: MaxAPI, at: datetime) -> None:
         lines = [f"Сводка интереса за {local_date}", ""]
         for item in unique_users.values():
             user = db.fetch_one("SELECT * FROM messenger_users WHERE id = ?", (item["messenger_user_id"],)) or {}
-            lines.append(f"• {_identity(user)[:100]} — {local_time(item['last_activity_at'])}")
+            lines.append(f"• {candidate_identity(user)} — {escape_markdown(local_time(item['last_activity_at']))}")
         if digest.get("remaining_count"):
             lines.append(f"\nЕщё пользователей в очереди: {digest['remaining_count']}")
         lines.append("\nОтклики, вопросы или обращения не оставлены.")
@@ -521,7 +529,7 @@ def process_daily(api: MaxAPI, at: datetime) -> None:
             continue
         error = None
         try:
-            _send_once(api, admin, "\n".join(lines)[:3350], keyboard)
+            _send_once(api, admin, "\n".join(lines)[:3350], keyboard, format="markdown")
         except Exception as exc:
             error = exc
         _finish("interest_digests", digest["id"], token, error, now)
@@ -554,7 +562,7 @@ def history_for_token(token: str, admin: dict[str, Any]) -> tuple[str, dict[str,
         label = EVENT_LABELS.get(event["event_type"], event["event_type"])
         title = _event_title(event) if event["event_type"] in {"vacancy_viewed", "vacancy_apply_started"} else ""
         lines.append(f"{local_time(event['created_at'])}: {label}{' — ' + title if title else ''}")
-    return "\n".join(lines)[:3500], callback_keyboard([[("Написать кандидату", f"ir:{token}")]])
+    return _candidate_markdown("\n".join(lines), user)[:3500], callback_keyboard([[("Написать кандидату", f"ir:{token}")]])
 
 
 def digest_for_token(token: str, admin: dict[str, Any]) -> tuple[str, dict[str, Any] | None] | None:
@@ -570,7 +578,7 @@ def digest_for_token(token: str, admin: dict[str, Any]) -> tuple[str, dict[str, 
     buttons = []
     for item in items:
         user = db.fetch_one("SELECT * FROM messenger_users WHERE id = ?", (item["messenger_user_id"],)) or {}
-        lines.append(f"• {_identity(user)[:80]} — {local_time(item['last_activity_at'])}")
+        lines.append(f"• {candidate_identity(user)} — {escape_markdown(local_time(item['last_activity_at']))}")
         buttons.append([(_identity(user)[:50], f"ih:{item['action_token']}")])
     return "\n".join(lines)[:3500], callback_keyboard(buttons) if buttons else None
 

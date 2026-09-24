@@ -8,14 +8,14 @@ from app import db
 from app.max_api import MaxAPI, build_keyboard
 
 
-def notify_admins(api: MaxAPI, text: str, keyboard: dict | None = None) -> None:
+def notify_admins(api: MaxAPI, text: str, keyboard: dict | None = None, format: str | None = None) -> None:
     for admin in db.notification_admins():
         user_id = str(admin.get("max_user_id") or "")
         chat_id = str(admin.get("chat_id") or "")
         sent = False
         if chat_id:
             try:
-                api.send_message(text, chat_id=chat_id, keyboard=keyboard)
+                api.send_message(text, chat_id=chat_id, keyboard=keyboard, format=format)
                 print(f"Уведомление администратору {user_id} отправлено через chat_id={chat_id}.")
                 sent = True
             except requests.exceptions.HTTPError as exc:
@@ -31,7 +31,7 @@ def notify_admins(api: MaxAPI, text: str, keyboard: dict | None = None) -> None:
             continue
         if user_id:
             try:
-                api.send_message(text, user_id=user_id, keyboard=keyboard)
+                api.send_message(text, user_id=user_id, keyboard=keyboard, format=format)
                 print(f"Уведомление администратору {user_id} отправлено через user_id.")
             except Exception as exc:
                 print(f"Не удалось отправить уведомление администратору {user_id} через user_id: {exc}")

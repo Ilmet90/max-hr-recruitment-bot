@@ -95,6 +95,7 @@ class MaxAPI:
         chat_id: str | None = None,
         user_id: str | None = None,
         keyboard: dict[str, Any] | None = None,
+        format: str | None = None,
     ) -> Any:
         if len(args) == 2:
             chat_id, text = args
@@ -108,6 +109,8 @@ class MaxAPI:
             raise MaxApiError("Для отправки сообщения нужен text")
         params = {"chat_id": chat_id} if chat_id else {"user_id": user_id}
         payload = {"text": text}
+        if format:
+            payload["format"] = format
         if keyboard:
             payload["attachments"] = [keyboard]
         try:
@@ -116,17 +119,19 @@ class MaxAPI:
             status_code = exc.response.status_code if exc.response is not None else None
             if keyboard and status_code == 400:
                 print("MAX API отклонил клавиатуру, повторяю отправку сообщения без кнопок.")
-                return self._send_message_payload(params, {"text": text})
+                return self._send_message_payload(params, {key: value for key, value in payload.items() if key != "attachments"})
             raise
 
     def send_message_once(
         self, text: str, chat_id: str | None = None, user_id: str | None = None,
-        keyboard: dict[str, Any] | None = None,
+        keyboard: dict[str, Any] | None = None, format: str | None = None,
     ) -> Any:
         """One POST only; the interest outbox decides what can safely be retried."""
         if not text or not (chat_id or user_id):
             raise MaxApiError("Для отправки сообщения нужны text и chat_id или user_id")
         payload: dict[str, Any] = {"text": text}
+        if format:
+            payload["format"] = format
         if keyboard:
             payload["attachments"] = [keyboard]
         return self._request("POST", "/messages", params={"chat_id": chat_id} if chat_id else {"user_id": user_id}, json=payload)
