@@ -11,7 +11,7 @@ from typing import Any
 import requests
 
 from app import db
-from app.max_api import MaxAPI, MaxApiError, build_keyboard
+from app.max_api import MaxAPI, MaxApiError, callback_keyboard
 
 LOG = logging.getLogger(__name__)
 MSK = ZoneInfo("Europe/Moscow")
@@ -90,9 +90,14 @@ def _cooldown_until(conn: Any, admin_id: int, user_id: int) -> str | None:
 
 def _eligible(conn: Any, admin: dict[str, Any], session: dict[str, Any]) -> bool:
     session_id = session.get("session_id") or session["id"]
+    contacted = conn.execute("""SELECT 1 FROM conversation_messages m
+        JOIN conversations c ON c.id = m.conversation_id
+        WHERE c.messenger_user_id = ? AND m.direction = 'outbound'
+        AND m.delivery_status IN ('pending', 'sending', 'sent', 'uncertain')
+        AND m.created_at >= ? LIMIT 1""", (session["messenger_user_id"], session["started_at"])).fetchone()
     return (allowed_admin(admin) and admin["interest_mode"] != "off"
             and session["meaningful_activity"] == 1 and not _converted(conn, session)
-            and _has_new_meaningful(conn, session_id, _cutoff(conn, admin)))
+            and not contacted and _has_new_meaningful(conn, session_id, _cutoff(conn, admin)))
 
 
 def materialize(at: datetime | None = None) -> None:
@@ -104,7 +109,11 @@ def materialize(at: datetime | None = None) -> None:
         sessions = [dict(row) for row in conn.execute("""SELECT s.* FROM user_sessions s
             JOIN messenger_users u ON u.id = s.messenger_user_id WHERE u.messenger = 'max'
             AND s.meaningful_activity = 1 AND s.conversion_type IS NULL
-            AND s.last_activity_at >= (SELECT value FROM settings WHERE key = 'interest_notifications_activated_at')""")]
+            AND s.last_activity_at >= (SELECT value FROM settings WHERE key = 'interest_notifications_activated_at')
+            AND NOT EXISTS (SELECT 1 FROM conversation_messages m JOIN conversations c ON c.id = m.conversation_id
+                WHERE c.messenger_user_id = s.messenger_user_id AND m.direction = 'outbound'
+                AND m.delivery_status IN ('pending', 'sending', 'sent', 'uncertain')
+                AND m.created_at >= s.started_at)""")]
         for admin in admins:
             for session in sessions:
                 if not _eligible(conn, admin, session):
@@ -332,8 +341,11 @@ def _session_summary(session: dict[str, Any], user: dict[str, Any]) -> str:
 
 def _single_message(delivery: dict[str, Any], session: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     user = db.fetch_one("SELECT * FROM messenger_users WHERE id = ?", (session["messenger_user_id"],)) or {}
-    command = f"История активности {delivery['action_token']}"
-    return _session_summary(session, user)[:3350] + f"\n\nИстория: {command}", build_keyboard([[command]])
+    token = delivery["action_token"]
+    return _session_summary(session, user)[:3350], callback_keyboard([
+        [("История активности", f"ih:{token}")],
+        [("Написать кандидату", f"ir:{token}")],
+    ])
 
 
 def process_singles(api: MaxAPI, now: str, limit: int = 20) -> None:
@@ -504,13 +516,12 @@ def process_daily(api: MaxAPI, at: datetime) -> None:
         if digest.get("remaining_count"):
             lines.append(f"\nЕщё пользователей в очереди: {digest['remaining_count']}")
         lines.append("\nОтклики, вопросы или обращения не оставлены.")
-        command = f"Список интересов {digest['action_token']}"
-        keyboard = build_keyboard([[command]])
+        keyboard = callback_keyboard([[("Открыть список", f"id:{digest['action_token']}")]])
         if not _confirm_digest_sending(digest["id"], token, admin["id"], start, now):
             continue
         error = None
         try:
-            _send_once(api, admin, "\n".join(lines)[:3350] + f"\n\nОткрыть список: {command}", keyboard)
+            _send_once(api, admin, "\n".join(lines)[:3350], keyboard)
         except Exception as exc:
             error = exc
         _finish("interest_digests", digest["id"], token, error, now)
@@ -543,7 +554,7 @@ def history_for_token(token: str, admin: dict[str, Any]) -> tuple[str, dict[str,
         label = EVENT_LABELS.get(event["event_type"], event["event_type"])
         title = _event_title(event) if event["event_type"] in {"vacancy_viewed", "vacancy_apply_started"} else ""
         lines.append(f"{local_time(event['created_at'])}: {label}{' — ' + title if title else ''}")
-    return "\n".join(lines)[:3500], None
+    return "\n".join(lines)[:3500], callback_keyboard([[("Написать кандидату", f"ir:{token}")]])
 
 
 def digest_for_token(token: str, admin: dict[str, Any]) -> tuple[str, dict[str, Any] | None] | None:
@@ -559,7 +570,16 @@ def digest_for_token(token: str, admin: dict[str, Any]) -> tuple[str, dict[str, 
     buttons = []
     for item in items:
         user = db.fetch_one("SELECT * FROM messenger_users WHERE id = ?", (item["messenger_user_id"],)) or {}
-        command = f"История активности {item['action_token']}"
-        lines.append(f"• {_identity(user)[:80]} — {local_time(item['last_activity_at'])}\n  {command}")
-        buttons.append([command])
-    return "\n".join(lines)[:3500], build_keyboard(buttons) if buttons else None
+        lines.append(f"• {_identity(user)[:80]} — {local_time(item['last_activity_at'])}")
+        buttons.append([(_identity(user)[:50], f"ih:{item['action_token']}")])
+    return "\n".join(lines)[:3500], callback_keyboard(buttons) if buttons else None
+
+
+def candidate_for_token(token: str, admin: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not allowed_admin(admin):
+        return None
+    return db.fetch_one("""SELECT u.* FROM interest_deliveries d
+        JOIN user_sessions s ON s.id = d.session_id
+        JOIN messenger_users u ON u.id = s.messenger_user_id
+        WHERE d.action_token = ? AND d.admin_id = ? AND d.status = 'sent'""",
+        (token, admin["id"]))

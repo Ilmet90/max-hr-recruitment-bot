@@ -29,6 +29,14 @@ def build_keyboard(buttons: list[list[str]] | list[str]) -> dict[str, Any]:
     }
 
 
+def callback_keyboard(rows: list[list[tuple[str, str]]]) -> dict[str, Any]:
+    """Separate human button labels from opaque callback payloads."""
+    return {"type": "inline_keyboard", "payload": {"buttons": [
+        [{"type": "callback", "text": label, "payload": payload} for label, payload in row]
+        for row in rows if row
+    ]}}
+
+
 def normalize_bot_commands(commands: list[dict[str, str]]) -> list[dict[str, str]]:
     normalized: list[dict[str, str]] = []
     for command in commands:
@@ -122,6 +130,10 @@ class MaxAPI:
         if keyboard:
             payload["attachments"] = [keyboard]
         return self._request("POST", "/messages", params={"chat_id": chat_id} if chat_id else {"user_id": user_id}, json=payload)
+
+    def answer_callback(self, callback_id: str) -> Any:
+        """Acknowledge a callback after its action was handled."""
+        return self._request("POST", "/answers", params={"callback_id": callback_id}, json={})
 
     def set_bot_commands(
         self,
