@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 import tempfile
 import unittest
@@ -177,6 +178,26 @@ class InterestTests(unittest.TestCase):
         history, keyboard = interest.history_for_token(token, admin)
         self.assertIn("[Валерий Васкул](max://user/123)", history)
         self.assertEqual(keyboard["payload"]["buttons"][0][0]["payload"], f"ir:{token}")
+
+    def test_short_candidate_name_is_linked_on_identity_line(self) -> None:
+        user = {"display_name": "П", "first_name": "П", "external_user_id": "123"}
+        message = interest._candidate_markdown("Пользователь проявил интерес\nП\nВпервые: сегодня", user)
+        self.assertTrue(message.startswith("Пользователь проявил интерес\n[П](max://user/123)\n"))
+
+    def test_daily_digest_does_not_cut_markdown_mention(self) -> None:
+        self.admin("hr", "daily")
+        for index in range(20):
+            external = str(1000 + index)
+            self.candidate(external)
+            db.touch_candidate("max", external, {"display_name": "П", "first_name": "П", "username": "u" * 120}, iso(BASE))
+        interest.run_once(self.api, BASE + timedelta(days=1, hours=-3))
+        self.assertEqual(len(self.api.sent), 1)
+        message, kwargs = self.api.sent[0]
+        self.assertEqual(kwargs["format"], "markdown")
+        self.assertLessEqual(len(message), 3350)
+        self.assertTrue(message.endswith("\n…"))
+        self.assertEqual(message.count("[П](max://user/"), len(re.findall(r"\[П\]\(max://user/[0-9]+\)", message)))
+        self.assertEqual(kwargs["keyboard"]["payload"]["buttons"][0][0]["payload"][:3], "id:")
 
     def test_mode_change_cancels_pending_and_requires_new_interest(self) -> None:
         admin = self.admin("hr", "3h")

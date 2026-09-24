@@ -318,7 +318,18 @@ def _identity(user: dict[str, Any]) -> str:
 
 
 def _candidate_markdown(text: str, user: dict[str, Any]) -> str:
-    return escape_markdown(text).replace(escape_markdown(_identity(user)), candidate_identity(user), 1)
+    heading, separator, rest = text.partition("\n")
+    identity, next_separator, tail = rest.partition("\n")
+    if separator and identity == _identity(user):
+        return (escape_markdown(heading) + "\n" + candidate_identity(user)
+                + ("\n" + escape_markdown(tail) if next_separator else ""))
+    return escape_markdown(text)
+
+
+def _clip_markdown(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit - 2].rsplit("\n", 1)[0] + "\n…"
 
 
 def _session_summary(session: dict[str, Any], user: dict[str, Any]) -> str:
@@ -350,7 +361,7 @@ def _session_summary(session: dict[str, Any], user: dict[str, Any]) -> str:
 def _single_message(delivery: dict[str, Any], session: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     user = db.fetch_one("SELECT * FROM messenger_users WHERE id = ?", (session["messenger_user_id"],)) or {}
     token = delivery["action_token"]
-    return _candidate_markdown(_session_summary(session, user), user)[:3350], callback_keyboard([
+    return _clip_markdown(_candidate_markdown(_session_summary(session, user), user), 3350), callback_keyboard([
         [("История активности", f"ih:{token}")],
         [("Написать кандидату", f"ir:{token}")],
     ])
@@ -529,7 +540,7 @@ def process_daily(api: MaxAPI, at: datetime) -> None:
             continue
         error = None
         try:
-            _send_once(api, admin, "\n".join(lines)[:3350], keyboard, format="markdown")
+            _send_once(api, admin, _clip_markdown("\n".join(lines), 3350), keyboard, format="markdown")
         except Exception as exc:
             error = exc
         _finish("interest_digests", digest["id"], token, error, now)
@@ -562,7 +573,7 @@ def history_for_token(token: str, admin: dict[str, Any]) -> tuple[str, dict[str,
         label = EVENT_LABELS.get(event["event_type"], event["event_type"])
         title = _event_title(event) if event["event_type"] in {"vacancy_viewed", "vacancy_apply_started"} else ""
         lines.append(f"{local_time(event['created_at'])}: {label}{' — ' + title if title else ''}")
-    return _candidate_markdown("\n".join(lines), user)[:3500], callback_keyboard([[("Написать кандидату", f"ir:{token}")]])
+    return _clip_markdown(_candidate_markdown("\n".join(lines), user), 3500), callback_keyboard([[("Написать кандидату", f"ir:{token}")]])
 
 
 def digest_for_token(token: str, admin: dict[str, Any]) -> tuple[str, dict[str, Any] | None] | None:
@@ -580,7 +591,7 @@ def digest_for_token(token: str, admin: dict[str, Any]) -> tuple[str, dict[str, 
         user = db.fetch_one("SELECT * FROM messenger_users WHERE id = ?", (item["messenger_user_id"],)) or {}
         lines.append(f"• {candidate_identity(user)} — {escape_markdown(local_time(item['last_activity_at']))}")
         buttons.append([(_identity(user)[:50], f"ih:{item['action_token']}")])
-    return "\n".join(lines)[:3500], callback_keyboard(buttons) if buttons else None
+    return _clip_markdown("\n".join(lines), 3500), callback_keyboard(buttons) if buttons else None
 
 
 def candidate_for_token(token: str, admin: dict[str, Any] | None) -> dict[str, Any] | None:
