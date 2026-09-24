@@ -340,6 +340,8 @@ def init_db() -> None:
         seed_db(conn)
     ensure_activity_schema()
     ensure_interest_notifications_schema()
+    from app.conversations import ensure_conversations_schema
+    ensure_conversations_schema()
 
 
 def ensure_activity_schema() -> None:
@@ -1314,7 +1316,14 @@ def _matching_activity(max_user_id: Any, activity: ActivityContext | None) -> Ac
     return activity if activity and str(max_user_id or "") == activity[2] else None
 
 
-def create_application(data: dict[str, Any], activity: ActivityContext | None = None) -> int:
+def _record_completion_mid_conn(conn: sqlite3.Connection, completion_mid: str | None) -> None:
+    if completion_mid:
+        conn.execute("INSERT OR IGNORE INTO processed_max_updates (update_key, processed_at) VALUES (?, ?)",
+                     (f"message:{completion_mid}", utc_now_iso()))
+
+
+def create_application(data: dict[str, Any], activity: ActivityContext | None = None,
+                       completion_mid: str | None = None) -> int:
     activity = _matching_activity(data.get("max_user_id"), activity)
     with get_connection() as conn:
         application_id = int(conn.execute(
@@ -1333,12 +1342,17 @@ def create_application(data: dict[str, Any], activity: ActivityContext | None = 
         ).lastrowid)
         if activity:
             _record_activity_event_conn(conn, activity, "vacancy_application_submitted", data.get("vacancy_id"))
+            from app.conversations import link_source_conn
+            link_source_conn(conn, "application", application_id, activity[0])
+        _record_completion_mid_conn(conn, completion_mid)
         return application_id
 
 
 def create_question(
     max_user_id: str, question_text: str, contact: str,
     activity: ActivityContext | None = None,
+    question_mid: str | None = None,
+    completion_mid: str | None = None,
 ) -> int:
     activity = _matching_activity(max_user_id, activity)
     with get_connection() as conn:
@@ -1348,12 +1362,17 @@ def create_question(
         ).lastrowid)
         if activity:
             _record_activity_event_conn(conn, activity, "question_sent")
+            from app.conversations import link_source_conn
+            link_source_conn(conn, "question", question_id, activity[0], question_text, question_mid)
+        _record_completion_mid_conn(conn, completion_mid)
         return question_id
 
 
 def create_appeal(
     max_user_id: str, full_name: str, phone: str, appeal_text: str,
     activity: ActivityContext | None = None,
+    appeal_mid: str | None = None,
+    completion_mid: str | None = None,
 ) -> int:
     activity = _matching_activity(max_user_id, activity)
     with get_connection() as conn:
@@ -1363,6 +1382,9 @@ def create_appeal(
         ).lastrowid)
         if activity:
             _record_activity_event_conn(conn, activity, "appeal_sent")
+            from app.conversations import link_source_conn
+            link_source_conn(conn, "appeal", appeal_id, activity[0], appeal_text, appeal_mid)
+        _record_completion_mid_conn(conn, completion_mid)
         return appeal_id
 
 
@@ -1448,7 +1470,10 @@ def delete_record_permanently(table: str, item_id: int, actor_id: int | None = N
         "appeal": "Сообщение удалено полностью",
     }[target_type]
     audit_log(actor_id, actor_name, f"{target_type}_deleted_permanently", target_type, item_id, details)
-    execute(f"DELETE FROM {table} WHERE id = ?", (item_id,))
+    with get_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("DELETE FROM conversation_sources WHERE source_type = ? AND source_record_id = ?", (target_type, item_id))
+        conn.execute(f"DELETE FROM {table} WHERE id = ?", (item_id,))
 
 
 def hash_password(password: str) -> str:
