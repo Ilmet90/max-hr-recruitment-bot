@@ -54,6 +54,23 @@ nav a:hover { color: var(--theme-light); border-color: var(--line); text-decorat
 .conversation-header form, .chat-retry { margin: 0; }
 .conversation-header form button { width: fit-content; }
 .max-web-link { width: fit-content; }
+.analytics-periods { margin: 0 0 20px; }
+.analytics-periods .selected { border-color: var(--theme-accent); color: var(--theme-accent-light); }
+.analytics-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 12px; margin-bottom: 16px; }
+.analytics-card { padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); min-width: 0; }
+.analytics-card h2 { font-size: 15px; margin: 0 0 10px; }
+.analytics-card strong { font-size: 28px; color: var(--theme-accent-light); }
+.analytics-card p { margin: 8px 0 0; color: var(--theme-muted); font-size: 13px; }
+.analytics-secondary { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+.analytics-secondary span { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; background: var(--surface-2); }
+.analytics-funnel { display: grid; gap: 14px; }
+.funnel-step { display: grid; gap: 6px; }
+.funnel-step div { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.funnel-step progress { width: 100%; height: 16px; accent-color: var(--theme-accent); }
+.analytics-funnel .small { margin: 0; }
+.analytics-table-wrap { overflow-x: auto; }
+.analytics-table-wrap table { min-width: 760px; }
+.analytics-table-wrap small { display: block; color: var(--theme-muted); }
 .conversation-username { margin: 0; color: var(--theme-muted); }
 .conversation-facts { display: flex; flex-wrap: wrap; gap: 10px 24px; color: var(--theme-muted); }
 .conversation-facts strong { color: var(--theme-light); }

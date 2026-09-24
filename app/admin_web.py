@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import db, conversations, interest_notifications
+from app import analytics, db, conversations, interest_notifications
 from app import maintenance
 from app import max_api2_certs
 from app import trudvsem_import
@@ -550,6 +550,17 @@ def dashboard(request: Request) -> HTMLResponse:
             "admins": len(db.list_admins(active_only=True)),
         },
     )
+
+
+@app.get("/admin/analytics", response_class=HTMLResponse)
+def analytics_page(request: Request) -> HTMLResponse:
+    require_admin(request)
+    period = request.query_params.get("period", "7d")
+    if period not in analytics.PERIODS:
+        raise HTTPException(status_code=400)
+    return render(request, "analytics.html", {
+        "report": analytics.report(period), "periods": analytics.PERIODS,
+    })
 
 
 @app.get("/admin/about", response_class=HTMLResponse)

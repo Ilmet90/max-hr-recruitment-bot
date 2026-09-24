@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+{% set s = report.summary %}
+{% set f = report.funnel %}
+<h1>Аналитика</h1>
+<nav class="analytics-periods" aria-label="Период аналитики">
+  {% for key, label in periods.items() %}
+    <a href="/admin/analytics?period={{ key }}" class="button {{ 'selected' if report.period == key else '' }}" {% if report.period == key %}aria-current="page"{% endif %}>{{ label }}</a>
+  {% endfor %}
+</nav>
+<div class="analytics-cards">
+  <article class="analytics-card"><h2>Активные кандидаты</h2><strong>{{ s.active_users }}</strong><p>Совершили учитываемое действие за выбранный период.</p></article>
+  <article class="analytics-card"><h2>Просмотры вакансий</h2><strong>{{ s.vacancy_views_raw }}</strong><p>{{ s.vacancy_viewers_unique }} уникальных кандидатов.</p></article>
+  <article class="analytics-card"><h2>Начали отклик</h2><strong>{{ s.apply_started_unique_pairs }}</strong><p>Уникальных пар кандидат–вакансия; {{ s.apply_started_raw }} запусков.</p></article>
+  <article class="analytics-card"><h2>Отправили отклик</h2><strong>{{ s.applications_submitted_raw }}</strong><p>{{ s.applications_submitted_unique_pairs }} уникальных пар кандидат–вакансия.</p></article>
+  <article class="analytics-card"><h2>Начало → отправка</h2><strong>{{ s.conversion_rate }}</strong><p>{{ s.conversion_submitted }} из {{ s.conversion_started }} пар завершили отклик в этом периоде.</p></article>
+</div>
+<div class="analytics-secondary" aria-label="Другие обращения">
+  <span>Вопросы: <strong>{{ s.questions_sent }}</strong></span>
+  <span>Обращения: <strong>{{ s.appeals_sent }}</strong></span>
+</div>
+{% if not report.has_events %}<p class="notice">За выбранный период данных пока нет.</p>{% endif %}
+<section class="panel analytics-funnel" aria-labelledby="funnel-heading">
+  <h2 id="funnel-heading">Воронка откликов</h2>
+  <div class="funnel-step"><div><span>Просмотрели вакансию</span><strong>{{ f.funnel_viewed }}</strong></div><progress value="{{ f.funnel_viewed }}" max="{{ f.funnel_viewed or 1 }}"></progress></div>
+  <div class="funnel-step"><div><span>Начали отклик</span><strong>{{ f.funnel_started }} · {{ f.view_to_start_rate }} от просмотров</strong></div><progress value="{{ f.funnel_started }}" max="{{ f.funnel_viewed or 1 }}"></progress></div>
+  <div class="funnel-step"><div><span>Отправили отклик</span><strong>{{ f.funnel_submitted }} · {{ f.start_to_submit_rate }} от начавших</strong></div><progress value="{{ f.funnel_submitted }}" max="{{ f.funnel_viewed or 1 }}"></progress></div>
+  <p class="small">Воронка учитывает только последовательные действия «просмотр → начало → отправка» в выбранном периоде. Отклики, начатые другим путём, учитываются в общей статистике, но не входят в эту воронку.</p>
+</section>
+<section aria-labelledby="vacancies-heading">
+  <h2 id="vacancies-heading">Статистика по вакансиям</h2>
+  {% if report.vacancies %}
+  <div class="analytics-table-wrap"><table>
+    <thead><tr><th>Вакансия</th><th>Просмотры</th><th>Уникальные</th><th>Начали отклик</th><th>Отправлено</th><th>Начало → отправка</th></tr></thead>
+    <tbody>{% for item in report.vacancies %}<tr>
+      <th scope="row">{{ item.label }}</th>
+      <td>{{ item.vacancy_views_raw }}</td>
+      <td>{{ item.vacancy_viewers_unique }}</td>
+      <td>{{ item.apply_started_unique_pairs }}<small>{{ item.apply_started_raw }} запусков</small></td>
+      <td>{{ item.applications_submitted_raw }}<small>{{ item.applications_submitted_unique_pairs }} уникальных</small></td>
+      <td>{{ item.conversion_rate }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="small">За выбранный период действий по вакансиям нет.</p>{% endif %}
+</section>
+{% endblock %}
