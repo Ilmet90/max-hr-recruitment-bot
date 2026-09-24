@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head"><h1>Диалоги</h1></div>
+<div class="actions">
+  <a class="button{% if status == 'open' %} secondary{% endif %}" href="/admin/conversations?status=open">Открытые</a>
+  <a class="button{% if status == 'closed' %} secondary{% endif %}" href="/admin/conversations?status=closed">Закрытые</a>
+</div>
+{% if items %}
+<table>
+  <thead><tr><th>Кандидат</th><th>Последнее</th><th>Активность</th><th>Непрочитанные</th><th>Статус</th></tr></thead>
+  <tbody>
+  {% for item in items %}
+    <tr>
+      <td><a href="/admin/conversations/{{ item.id }}">{{ item.display_name or ('@' + item.username if item.username else 'Пользователь MAX') }}</a></td>
+      <td>{{ (item.last_text or ('Связанных записей: ' ~ item.source_count))|truncate(120) }}</td>
+      <td>{{ item.updated_at }}</td>
+      <td>{% if item.unread %}<strong>{{ item.unread }}</strong>{% else %}—{% endif %}</td>
+      <td>{{ 'Открыт' if item.status == 'open' else 'Закрыт' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}<p>Диалогов пока нет.</p>{% endif %}
+{% endblock %}

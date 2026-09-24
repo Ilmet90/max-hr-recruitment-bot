@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import db
+from app import db, conversations, interest_notifications
 from app import maintenance
 from app import max_api2_certs
 from app import trudvsem_import
@@ -318,6 +318,7 @@ def validate_hex_color(color: str) -> bool:
 @app.on_event("startup")
 def startup() -> None:
     db.init_db()
+    conversations.recover_interrupted_sends()
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -1185,6 +1186,85 @@ def contact_delete(request: Request, contact_id: int) -> RedirectResponse:
     require_content(request)
     db.delete_contact(contact_id)
     return redirect("/admin/contacts")
+
+
+@app.get("/admin/conversations", response_class=HTMLResponse)
+def conversations_page(request: Request) -> HTMLResponse:
+    require_admin(request)
+    conversations.recover_interrupted_sends()
+    admin = current_admin(request)
+    status = request.query_params.get("status", "open")
+    if status not in {"open", "closed"}:
+        raise HTTPException(status_code=400)
+    return render(request, "conversations.html", {
+        "items": conversations.list_conversations(admin, status), "status": status,
+    })
+
+
+@app.get("/admin/conversations/{conversation_id}", response_class=HTMLResponse)
+def conversation_page(request: Request, conversation_id: int) -> HTMLResponse:
+    require_admin(request)
+    conversations.recover_interrupted_sends()
+    result = conversations.detail(conversation_id)
+    if not result:
+        raise HTTPException(status_code=404)
+    last_rendered = next((m["id"] for m in reversed(result["messages"]) if m["direction"] == "inbound"), None)
+    response = render(request, "conversation.html", {
+        **result, "request_key": secrets.token_urlsafe(24),
+        "activity_labels": interest_notifications.EVENT_LABELS,
+        "delivery_labels": {"pending": "Ожидает отправки", "sending": "Отправляется",
+                            "sent": "Отправлено", "failed": "Ошибка отправки",
+                            "uncertain": "Результат не подтверждён"},
+        "notice": request.query_params.get("message", ""),
+        "error": request.query_params.get("error", ""),
+    })
+    conversations.mark_read(conversation_id, current_admin(request), last_rendered)
+    return response
+
+
+@app.post("/admin/conversations/{conversation_id}/send")
+def conversation_send(request: Request, conversation_id: int, text: str = Form(""),
+                      request_key: str = Form("")) -> RedirectResponse:
+    require_admin(request)
+    conversation = conversations.get_by_id(conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404)
+    api = max_api_client()
+    if not api:
+        return redirect_with_notice(f"/admin/conversations/{conversation_id}", error="MAX недоступен")
+    try:
+        result = conversations.send_outbound(api, conversation["messenger_user_id"],
+                                             current_admin(request), text, request_key)
+    except (ValueError, PermissionError) as exc:
+        return redirect_with_notice(f"/admin/conversations/{conversation_id}", error=str(exc))
+    return redirect_with_notice(f"/admin/conversations/{conversation_id}", message=result["delivery_status"])
+
+
+@app.post("/admin/conversations/{conversation_id}/retry/{message_id}")
+def conversation_retry(request: Request, conversation_id: int, message_id: int,
+                       request_key: str = Form("")) -> RedirectResponse:
+    require_admin(request)
+    api = max_api_client()
+    if not api:
+        return redirect_with_notice(f"/admin/conversations/{conversation_id}", error="MAX недоступен")
+    old = db.fetch_one("SELECT conversation_id FROM conversation_messages WHERE id = ?", (message_id,))
+    if not old or old["conversation_id"] != conversation_id:
+        raise HTTPException(status_code=404)
+    try:
+        result = conversations.retry_failed(api, message_id, current_admin(request), request_key)
+    except (ValueError, PermissionError) as exc:
+        return redirect_with_notice(f"/admin/conversations/{conversation_id}", error=str(exc))
+    return redirect_with_notice(f"/admin/conversations/{conversation_id}", message=result["delivery_status"])
+
+
+@app.post("/admin/conversations/{conversation_id}/status")
+def conversation_status(request: Request, conversation_id: int, status: str = Form("")) -> RedirectResponse:
+    require_admin(request)
+    if status not in {"open", "closed"}:
+        raise HTTPException(status_code=400)
+    if not conversations.set_status(conversation_id, status):
+        raise HTTPException(status_code=404)
+    return redirect(f"/admin/conversations/{conversation_id}")
 
 
 @app.get("/admin/applications", response_class=HTMLResponse)

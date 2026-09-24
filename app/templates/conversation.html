@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head"><h1>{{ user.display_name or ('@' + user.username if user.username else 'Пользователь MAX') }}</h1>
+  <a href="/admin/conversations">К списку диалогов</a></div>
+{% if user.username %}<p>@{{ user.username.lstrip('@') }}</p>{% endif %}
+<p>Впервые: {{ user.first_seen_at }} · Последняя активность: {{ user.last_seen_at }}</p>
+<p>Статус: <strong>{{ 'Открыт' if conversation.status == 'open' else 'Закрыт' }}</strong></p>
+<form method="post" action="/admin/conversations/{{ conversation.id }}/status">
+  <input type="hidden" name="status" value="{{ 'closed' if conversation.status == 'open' else 'open' }}">
+  <button type="submit">{{ 'Закрыть' if conversation.status == 'open' else 'Открыть снова' }}</button>
+</form>
+{% if notice %}<p class="alert">Результат отправки: {{ notice }}</p>{% endif %}
+{% if error %}<p class="alert">{{ error }}</p>{% endif %}
+<h2>Сообщения</h2>
+{% if messages %}
+  <div class="conversation-timeline">
+  {% for item in messages %}
+    <article class="conversation-message {{ item.direction }}">
+      <small>{{ item.created_at }} · {{ 'Кандидат' if item.direction == 'inbound' else 'Отдел кадров' }}</small>
+      <p>{{ item.text }}</p>
+      {% if item.direction == 'outbound' %}
+        <small>Доставка: {{ delivery_labels.get(item.delivery_status, item.delivery_status) }}</small>
+        {% if item.delivery_status == 'failed' %}
+          <form method="post" action="/admin/conversations/{{ conversation.id }}/retry/{{ item.id }}">
+            <input type="hidden" name="request_key" value="{{ request_key }}">
+            <button type="submit">Повторить отправку</button>
+          </form>
+        {% endif %}
+      {% endif %}
+    </article>
+  {% endfor %}
+  </div>
+{% else %}<p>Сообщений пока нет.</p>{% endif %}
+<h2>Написать кандидату</h2>
+<form method="post" action="/admin/conversations/{{ conversation.id }}/send">
+  <input type="hidden" name="request_key" value="{{ request_key }}">
+  <textarea name="text" rows="5" maxlength="4000" required></textarea>
+  <button type="submit">Отправить от имени бота</button>
+</form>
+<h2>Связанные записи</h2>
+{% for question in sources.question %}<article class="conversation-card"><strong>Вопрос</strong><p>{{ question.question_text }}</p><small>{{ question.created_at }}</small></article>{% endfor %}
+{% for application in sources.application %}<article class="conversation-card"><strong>Отклик: {{ application.vacancy_title }}</strong><p>{{ application.full_name }} · {{ application.phone }}</p><small>{{ application.created_at }}</small></article>{% endfor %}
+{% for appeal in sources.appeal %}<article class="conversation-card"><strong>Обращение</strong><p>{{ appeal.appeal_text }}</p><small>{{ appeal.created_at }}</small></article>{% endfor %}
+<h2>Последняя активность</h2>
+{% if activity %}<ul>{% for event in activity %}<li>{{ event.created_at }} · {{ activity_labels.get(event.event_type, event.event_type) }}</li>{% endfor %}</ul>{% else %}<p>Активности пока нет.</p>{% endif %}
+{% endblock %}
