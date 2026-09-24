@@ -49,11 +49,40 @@ nav a {
 nav a:hover { color: var(--theme-light); border-color: var(--line); text-decoration: none; }
 .logout-link { color: var(--theme-accent-light); border-color: rgba(201,166,70,.35); }
 .container { max-width: 1280px; margin: 0 auto; padding: 28px 20px 48px; }
-.conversation-timeline { display: grid; gap: 12px; margin-bottom: 24px; }
-.conversation-message, .conversation-card { border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 12px; background: var(--surface); }
-.conversation-message.outbound { margin-left: min(12%, 80px); background: var(--surface-2); }
-.conversation-message p, .conversation-card p { white-space: pre-wrap; overflow-wrap: anywhere; }
-.conversation-message small, .conversation-card small { color: var(--theme-muted); }
+.conversation-header, .conversation-section { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin-bottom: 20px; }
+.conversation-header { display: grid; gap: 14px; }
+.conversation-header form, .chat-retry { margin: 0; }
+.conversation-header form button { width: fit-content; }
+.conversation-username { margin: 0; color: var(--theme-muted); }
+.conversation-facts { display: flex; flex-wrap: wrap; gap: 10px 24px; color: var(--theme-muted); }
+.conversation-facts strong { color: var(--theme-light); }
+.conversation-section h2 { margin-bottom: 16px; }
+.conversation-timeline { display: grid; gap: 14px; }
+.chat-row { display: flex; min-width: 0; }
+.chat-row.inbound { justify-content: flex-start; }
+.chat-row.outbound { justify-content: flex-end; }
+.chat-bubble { width: fit-content; max-width: min(76%, 760px); min-width: min(220px, 100%); border: 1px solid rgba(159,179,200,.3); border-radius: 14px 14px 14px 4px; padding: 12px 15px; background: #173858; box-shadow: 0 5px 14px rgba(0,0,0,.12); }
+.outbound .chat-bubble { background: #24404d; border-color: rgba(224,197,110,.35); border-radius: 14px 14px 4px 14px; }
+.chat-sender { font-size: 13px; font-weight: 700; color: var(--theme-accent-light); }
+.chat-text, .conversation-card p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-text { margin: 8px 0; }
+.chat-meta { display: flex; flex-wrap: wrap; gap: 3px 12px; justify-content: flex-end; color: var(--theme-muted); font-size: 12px; }
+.delivery-state.failed { color: #ffb4bd; }
+.delivery-state.uncertain { color: #f1ce82; }
+.chat-retry { margin-top: 10px; text-align: right; }
+.chat-retry button { padding: 5px 9px; font-size: 13px; }
+.conversation-compose { display: grid; gap: 10px; }
+.conversation-compose textarea { width: 100%; border: 1px solid rgba(159,179,200,.35); border-radius: 7px; background: #071a2f; color: var(--theme-light); padding: 10px; font: inherit; }
+.conversation-compose button { justify-self: start; }
+.conversation-records { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 270px), 1fr)); gap: 12px; }
+.conversation-card { border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: var(--surface-2); min-width: 0; }
+.conversation-card p { margin: 8px 0; }
+.conversation-card .record-time { color: var(--theme-muted); font-size: 13px; }
+.conversation-activity { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.conversation-activity li { display: flex; gap: 10px 16px; flex-wrap: wrap; border-bottom: 1px solid rgba(159,179,200,.16); padding: 8px 0; }
+.conversation-activity .activity-time { color: var(--theme-muted); min-width: 135px; }
+.conversation-list-link { font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.unread-badge { min-width: 28px; justify-content: center; background: var(--theme-accent); color: var(--theme-primary); font-weight: 700; }
 h1 { margin: 0 0 20px; font-size: 28px; color: var(--theme-light); }
 h2 { margin: 0 0 12px; font-size: 18px; color: var(--theme-accent-light); }
 .lead { max-width: 920px; margin: -8px 0 20px; color: var(--theme-muted); }
@@ -212,4 +241,6 @@ textarea { min-height: 120px; resize: vertical; }
   table { display: block; overflow-x: auto; }
   .photo-thumb { width: 160px; height: 110px; }
   .photo-row > .actions { grid-column: auto; }
+  .conversation-header, .conversation-section { padding: 14px; }
+  .chat-bubble { max-width: 92%; min-width: 0; }
 }

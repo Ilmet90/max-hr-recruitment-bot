@@ -9,8 +9,10 @@ import re
 import secrets
 import time
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
@@ -41,6 +43,22 @@ SESSION_TTL_SECONDS = 8 * 60 * 60
 app = FastAPI(title=db.DEFAULT_ORG_SETTINGS["web_admin_title"])
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATE_DIR)
+MSK = ZoneInfo("Europe/Moscow")
+
+
+def format_msk_datetime(value: str | None) -> str:
+    if not value:
+        return "—"
+    try:
+        parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(MSK).strftime("%d.%m.%Y %H:%M")
+    except (TypeError, ValueError, OverflowError):
+        return "—"
+
+
+templates.env.globals["format_msk_datetime"] = format_msk_datetime
 
 UPDATE_RESTART_HTML = """<!doctype html>
 <html lang="ru">
@@ -1211,10 +1229,13 @@ def conversation_page(request: Request, conversation_id: int) -> HTMLResponse:
     last_rendered = next((m["id"] for m in reversed(result["messages"]) if m["direction"] == "inbound"), None)
     response = render(request, "conversation.html", {
         **result, "request_key": secrets.token_urlsafe(24),
+        "retry_keys": {message["id"]: secrets.token_urlsafe(24) for message in result["messages"]
+                       if message["direction"] == "outbound" and message["delivery_status"] == "failed"},
         "activity_labels": interest_notifications.EVENT_LABELS,
         "delivery_labels": {"pending": "Ожидает отправки", "sending": "Отправляется",
                             "sent": "Отправлено", "failed": "Ошибка отправки",
                             "uncertain": "Результат не подтверждён"},
+        "max_outbound_text_length": conversations.MAX_OUTBOUND_TEXT_LENGTH,
         "notice": request.query_params.get("message", ""),
         "error": request.query_params.get("error", ""),
     })

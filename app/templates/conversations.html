@@ -11,10 +11,10 @@
   <tbody>
   {% for item in items %}
     <tr>
-      <td><a href="/admin/conversations/{{ item.id }}">{{ item.display_name or ('@' + item.username if item.username else 'Пользователь MAX') }}</a></td>
+      <td><a class="conversation-list-link" href="/admin/conversations/{{ item.id }}">{{ item.display_name or ('@' + item.username if item.username else 'Пользователь MAX') }}</a></td>
       <td>{{ (item.last_text or ('Связанных записей: ' ~ item.source_count))|truncate(120) }}</td>
-      <td>{{ item.updated_at }}</td>
-      <td>{% if item.unread %}<strong>{{ item.unread }}</strong>{% else %}—{% endif %}</td>
+      <td><span>{{ format_msk_datetime(item.updated_at) }}</span></td>
+      <td>{% if item.unread %}<span class="badge unread-badge" aria-label="Непрочитанных: {{ item.unread }}">{{ item.unread }}</span>{% else %}—{% endif %}</td>
       <td>{{ 'Открыт' if item.status == 'open' else 'Закрыт' }}</td>
     </tr>
   {% endfor %}

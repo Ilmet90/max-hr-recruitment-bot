@@ -2,45 +2,66 @@
 {% block content %}
 <div class="page-head"><h1>{{ user.display_name or ('@' + user.username if user.username else 'Пользователь MAX') }}</h1>
   <a href="/admin/conversations">К списку диалогов</a></div>
-{% if user.username %}<p>@{{ user.username.lstrip('@') }}</p>{% endif %}
-<p>Впервые: {{ user.first_seen_at }} · Последняя активность: {{ user.last_seen_at }}</p>
-<p>Статус: <strong>{{ 'Открыт' if conversation.status == 'open' else 'Закрыт' }}</strong></p>
-<form method="post" action="/admin/conversations/{{ conversation.id }}/status">
-  <input type="hidden" name="status" value="{{ 'closed' if conversation.status == 'open' else 'open' }}">
-  <button type="submit">{{ 'Закрыть' if conversation.status == 'open' else 'Открыть снова' }}</button>
-</form>
-{% if notice %}<p class="alert">Результат отправки: {{ notice }}</p>{% endif %}
-{% if error %}<p class="alert">{{ error }}</p>{% endif %}
-<h2>Сообщения</h2>
-{% if messages %}
-  <div class="conversation-timeline">
-  {% for item in messages %}
-    <article class="conversation-message {{ item.direction }}">
-      <small>{{ item.created_at }} · {{ 'Кандидат' if item.direction == 'inbound' else 'Отдел кадров' }}</small>
-      <p>{{ item.text }}</p>
-      {% if item.direction == 'outbound' %}
-        <small>Доставка: {{ delivery_labels.get(item.delivery_status, item.delivery_status) }}</small>
-        {% if item.delivery_status == 'failed' %}
-          <form method="post" action="/admin/conversations/{{ conversation.id }}/retry/{{ item.id }}">
-            <input type="hidden" name="request_key" value="{{ request_key }}">
-            <button type="submit">Повторить отправку</button>
-          </form>
-        {% endif %}
-      {% endif %}
-    </article>
-  {% endfor %}
+<section class="conversation-header" aria-label="Кандидат и диалог">
+  {% if user.username %}<p class="conversation-username">@{{ user.username.lstrip('@') }}</p>{% endif %}
+  <div class="conversation-facts">
+    <span>Впервые: {{ format_msk_datetime(user.first_seen_at) }}</span>
+    <span>Последняя активность: {{ format_msk_datetime(user.last_seen_at) }}</span>
+    <span>Статус: <strong>{{ 'Открыт' if conversation.status == 'open' else 'Закрыт' }}</strong></span>
   </div>
-{% else %}<p>Сообщений пока нет.</p>{% endif %}
-<h2>Написать кандидату</h2>
-<form method="post" action="/admin/conversations/{{ conversation.id }}/send">
-  <input type="hidden" name="request_key" value="{{ request_key }}">
-  <textarea name="text" rows="5" maxlength="4000" required></textarea>
-  <button type="submit">Отправить от имени бота</button>
-</form>
-<h2>Связанные записи</h2>
-{% for question in sources.question %}<article class="conversation-card"><strong>Вопрос</strong><p>{{ question.question_text }}</p><small>{{ question.created_at }}</small></article>{% endfor %}
-{% for application in sources.application %}<article class="conversation-card"><strong>Отклик: {{ application.vacancy_title }}</strong><p>{{ application.full_name }} · {{ application.phone }}</p><small>{{ application.created_at }}</small></article>{% endfor %}
-{% for appeal in sources.appeal %}<article class="conversation-card"><strong>Обращение</strong><p>{{ appeal.appeal_text }}</p><small>{{ appeal.created_at }}</small></article>{% endfor %}
-<h2>Последняя активность</h2>
-{% if activity %}<ul>{% for event in activity %}<li>{{ event.created_at }} · {{ activity_labels.get(event.event_type, event.event_type) }}</li>{% endfor %}</ul>{% else %}<p>Активности пока нет.</p>{% endif %}
+  <form method="post" action="/admin/conversations/{{ conversation.id }}/status">
+    <input type="hidden" name="status" value="{{ 'closed' if conversation.status == 'open' else 'open' }}">
+    <button type="submit">{{ 'Закрыть' if conversation.status == 'open' else 'Открыть снова' }}</button>
+  </form>
+</section>
+{% if notice %}<p class="notice">Результат отправки: {{ notice }}</p>{% endif %}
+{% if error %}<p class="alert">{{ error }}</p>{% endif %}
+<section class="conversation-section" aria-labelledby="messages-heading">
+  <h2 id="messages-heading">Сообщения</h2>
+  {% if messages %}
+  <div class="conversation-timeline">
+    {% for item in messages %}
+    <div class="chat-row {{ item.direction }}">
+      <article class="chat-bubble">
+        <div class="chat-sender">{{ 'Кандидат' if item.direction == 'inbound' else 'Отдел кадров' }}</div>
+        <p class="chat-text">{{ item.text }}</p>
+        <div class="chat-meta">
+          <span>{{ format_msk_datetime(item.created_at) }}</span>
+          {% if item.direction == 'outbound' %}
+          <span class="delivery-state {{ item.delivery_status }}">{{ delivery_labels.get(item.delivery_status, 'Статус неизвестен') }}</span>
+          {% endif %}
+        </div>
+        {% if item.direction == 'outbound' and item.delivery_status == 'failed' %}
+        <form method="post" action="/admin/conversations/{{ conversation.id }}/retry/{{ item.id }}" class="chat-retry">
+          <input type="hidden" name="request_key" value="{{ retry_keys[item.id] }}">
+          <button type="submit">Повторить отправку</button>
+        </form>
+        {% endif %}
+      </article>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}<p>Сообщений пока нет.</p>{% endif %}
+</section>
+<section class="conversation-section" aria-labelledby="reply-heading">
+  <h2 id="reply-heading">Написать кандидату</h2>
+  <form method="post" action="/admin/conversations/{{ conversation.id }}/send" class="conversation-compose">
+    <input type="hidden" name="request_key" value="{{ request_key }}">
+    <textarea name="text" rows="5" maxlength="{{ max_outbound_text_length }}" required aria-label="Сообщение кандидату"></textarea>
+    <button type="submit">Отправить от имени бота</button>
+  </form>
+</section>
+<section class="conversation-section" aria-labelledby="sources-heading">
+  <h2 id="sources-heading">Связанные записи</h2>
+  <div class="conversation-records">
+    {% for question in sources.question %}<article class="conversation-card"><strong>Вопрос</strong><p>{{ question.question_text }}</p><span class="record-time">{{ format_msk_datetime(question.created_at) }}</span></article>{% endfor %}
+    {% for application in sources.application %}<article class="conversation-card"><strong>Отклик: {{ application.vacancy_title }}</strong><p>{{ application.full_name }} · {{ application.phone }}</p><span class="record-time">{{ format_msk_datetime(application.created_at) }}</span></article>{% endfor %}
+    {% for appeal in sources.appeal %}<article class="conversation-card"><strong>Обращение</strong><p>{{ appeal.appeal_text }}</p><span class="record-time">{{ format_msk_datetime(appeal.created_at) }}</span></article>{% endfor %}
+  </div>
+  {% if not sources.question and not sources.application and not sources.appeal %}<p>Связанных записей пока нет.</p>{% endif %}
+</section>
+<section class="conversation-section" aria-labelledby="activity-heading">
+  <h2 id="activity-heading">Последняя активность</h2>
+  {% if activity %}<ul class="conversation-activity">{% for event in activity %}<li><span class="activity-time">{{ format_msk_datetime(event.created_at) }}</span><span>{{ activity_labels.get(event.event_type, event.event_type) }}</span></li>{% endfor %}</ul>{% else %}<p>Активности пока нет.</p>{% endif %}
+</section>
 {% endblock %}
