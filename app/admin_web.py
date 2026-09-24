@@ -25,6 +25,7 @@ from app import maintenance
 from app import max_api2_certs
 from app import trudvsem_import
 from app.max_api import MaxAPI
+from app.max_chat_ids import max_web_url
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -1229,6 +1230,7 @@ def conversation_page(request: Request, conversation_id: int) -> HTMLResponse:
     last_rendered = next((m["id"] for m in reversed(result["messages"]) if m["direction"] == "inbound"), None)
     response = render(request, "conversation.html", {
         **result, "request_key": secrets.token_urlsafe(24),
+        "max_web_url": max_web_url(result["user"]["messenger"], result["user"]["external_chat_id"]),
         "retry_keys": {message["id"]: secrets.token_urlsafe(24) for message in result["messages"]
                        if message["direction"] == "outbound" and message["delivery_status"] == "failed"},
         "activity_labels": interest_notifications.EVENT_LABELS,

@@ -53,6 +53,7 @@ nav a:hover { color: var(--theme-light); border-color: var(--line); text-decorat
 .conversation-header { display: grid; gap: 14px; }
 .conversation-header form, .chat-retry { margin: 0; }
 .conversation-header form button { width: fit-content; }
+.max-web-link { width: fit-content; }
 .conversation-username { margin: 0; color: var(--theme-muted); }
 .conversation-facts { display: flex; flex-wrap: wrap; gap: 10px 24px; color: var(--theme-muted); }
 .conversation-facts strong { color: var(--theme-light); }

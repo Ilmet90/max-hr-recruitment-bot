@@ -16,6 +16,7 @@ from starlette.requests import Request
 from app import admin_web, bot, conversations as conv, db, interest_notifications as interest
 from app.max_api import MaxAPI
 from app.max_mentions import candidate_mention, escape_markdown
+from app.max_chat_ids import canonical_chat_id, max_web_url
 
 
 def http_error(code: int) -> requests.exceptions.HTTPError:
@@ -91,6 +92,79 @@ class ConversationTests(unittest.TestCase):
 
     def process(self, event: dict) -> None:
         bot.process_update_batch(self.api, {"updates": [event], "marker": "100"})
+
+    def test_trusted_private_events_store_chat_id_without_changing_identity(self) -> None:
+        user_id = "63501621"
+        self.process({"update_type": "bot_started", "user": {"user_id": 63501621}, "chat_id": 24053553})
+        user = db.fetch_one("SELECT * FROM messenger_users WHERE external_user_id = ?", (user_id,))
+        self.assertEqual(user["external_chat_id"], "24053553")
+        event = update(user_id, "/menu", "new-chat", chat_type="dialog")
+        event["message"]["recipient"]["chat_id"] = "24053554"
+        self.process(event)
+        changed = db.fetch_one("SELECT * FROM messenger_users WHERE external_user_id = ?", (user_id,))
+        self.assertEqual((changed["id"], changed["external_chat_id"]), (user["id"], "24053554"))
+        self.assertEqual(db.fetch_one("SELECT COUNT(*) AS n FROM messenger_users")["n"], 1)
+        self.process({"update_type": "bot_stopped", "user": {"user_id": 63501621}, "chat_id": 24053554})
+        self.process({"update_type": "dialog_removed", "user": {"user_id": 63501621}, "chat_id": 24053554})
+        self.assertEqual(db.fetch_one("SELECT external_chat_id FROM messenger_users WHERE id = ?", (user["id"],))["external_chat_id"], "24053554")
+
+    def test_untrusted_events_do_not_store_or_erase_chat_id(self) -> None:
+        user_id = "63501621"
+        self.process({"update_type": "bot_started", "user": {"user_id": user_id}, "chat_id": "24053553"})
+        self.admin("hr")
+        cases = [
+            update(user_id, "Вакансии", "group", chat_type="chat"),
+            update(user_id, "Вакансии", "channel", chat_type="channel"),
+            update(user_id, "Вакансии", "missing-type", chat_type="dialog"),
+            update(user_id, "Вакансии", "invalid", chat_type="dialog"),
+        ]
+        cases[2]["message"]["recipient"].pop("chat_type")
+        cases[3]["message"]["recipient"]["chat_id"] = "not-an-id"
+        disguised_channel = update(user_id, "Вакансии", "disguised-channel", chat_type="dialog")
+        disguised_channel["is_channel"] = True
+        disguised_channel["message"]["recipient"]["chat_id"] = 999
+        cases.append(disguised_channel)
+        for event in cases:
+            self.process(event)
+        callback = realistic_callback(user_id, "cr:invalid", "cb-unique")
+        callback["message"]["recipient"]["chat_id"] = 999
+        callback["chat_id"] = 999
+        self.process(callback)
+        bot_event = update(user_id, "/menu", "bot-message")
+        bot_event["message"]["sender"]["is_bot"] = True
+        bot_event["message"]["recipient"]["chat_id"] = 999
+        self.process(bot_event)
+        self.process({"update_type": "bot_started", "user": {"user_id": "hr"}, "chat_id": 888})
+        self.assertEqual(db.fetch_one("SELECT external_chat_id FROM messenger_users WHERE external_user_id = ?", (user_id,))["external_chat_id"], "24053553")
+        self.assertIsNone(db.fetch_one("SELECT id FROM messenger_users WHERE external_user_id = 'hr'"))
+
+    def test_open_in_max_link_uses_chat_not_user_id(self) -> None:
+        ctx = db.touch_candidate("max", "63501621")
+        db.create_question("63501621", "Вопрос", "нет", ctx)
+        cid = conv.get_by_user(ctx[0])["id"]
+        hr = self.admin()
+        request = Request({"type": "http", "method": "GET", "path": f"/admin/conversations/{cid}",
+                           "headers": [], "query_string": b""})
+        with patch.object(admin_web, "current_admin", return_value=hr):
+            old_html = admin_web.conversation_page(request, cid).body.decode()
+        self.assertNotIn("Открыть в MAX", old_html)
+        db.update_messenger_user_chat_id("max", "63501621", 24053553)
+        with patch.object(admin_web, "current_admin", return_value=hr):
+            html = admin_web.conversation_page(request, cid).body.decode()
+        self.assertIn('href="https://web.max.ru/24053553" target="_blank" rel="noopener noreferrer"', html)
+        self.assertNotIn("https://web.max.ru/63501621", html)
+        db.execute("UPDATE messenger_users SET external_chat_id = ? WHERE id = ?", ("<script>", ctx[0]))
+        with patch.object(admin_web, "current_admin", return_value=hr):
+            bad_html = admin_web.conversation_page(request, cid).body.decode()
+        self.assertNotIn("Открыть в MAX", bad_html)
+
+    def test_chat_id_url_helper_rejects_non_max_and_invalid_values(self) -> None:
+        self.assertEqual(canonical_chat_id("00024053553"), "24053553")
+        self.assertEqual(canonical_chat_id("9223372036854775807"), "9223372036854775807")
+        self.assertIsNone(canonical_chat_id("9223372036854775808"))
+        self.assertIsNone(canonical_chat_id(10 ** 5000))
+        self.assertIsNone(max_web_url("telegram", "24053553"))
+        self.assertIsNone(max_web_url("max", "javascript:alert(1)"))
 
     def test_migration_is_idempotent_concurrent_and_preserves_old_rows(self) -> None:
         ctx = self.candidate()

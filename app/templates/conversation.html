@@ -9,6 +9,7 @@
     <span>Последняя активность: {{ format_msk_datetime(user.last_seen_at) }}</span>
     <span>Статус: <strong>{{ 'Открыт' if conversation.status == 'open' else 'Закрыт' }}</strong></span>
   </div>
+  {% if max_web_url %}<a class="button max-web-link" href="{{ max_web_url }}" target="_blank" rel="noopener noreferrer">Открыть в MAX ↗</a>{% endif %}
   <form method="post" action="/admin/conversations/{{ conversation.id }}/status">
     <input type="hidden" name="status" value="{{ 'closed' if conversation.status == 'open' else 'open' }}">
     <button type="submit">{{ 'Закрыть' if conversation.status == 'open' else 'Открыть снова' }}</button>
