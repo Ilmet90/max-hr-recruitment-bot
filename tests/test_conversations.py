@@ -351,6 +351,11 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("Введите сообщение для", self.api.sent[-1][0])
         self.assertIn("Для отмены: /cancel", self.api.sent[-1][0])
         self.assertTrue(conv.update_was_processed("callback:real-cr"))
+        sent_before_replay = len(self.api.sent)
+        reply_started_at = bot.reply_states["hr"]["started_at"]
+        self.process(event)
+        self.assertEqual(len(self.api.sent), sent_before_replay)
+        self.assertEqual(bot.reply_states["hr"]["started_at"], reply_started_at)
 
         bot.reply_states.clear()
         sent_before = len(self.api.sent)
