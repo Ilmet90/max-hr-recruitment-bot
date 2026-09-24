@@ -1582,7 +1582,12 @@ def handle_message(api: MaxAPI, message: dict[str, Any], update: dict[str, Any] 
     chat_id = extract_chat_id(source)
     user_id = extract_user_id(source)
     display_name = extract_display_name(source)
-    if not text or not (chat_id or user_id):
+    if not text:
+        trusted_chat = trusted_candidate_chat_id(source, user_id)
+        if trusted_chat is not None and user_id and not db.get_admin_by_user_id(user_id):
+            db.update_messenger_user_chat_id("max", user_id, trusted_chat)
+        return
+    if not (chat_id or user_id):
         return
     private_message = _private_message(source, message)
     message_mid = str(dict_value(message, "body", "mid") or "") or None

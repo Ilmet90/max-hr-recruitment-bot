@@ -104,9 +104,16 @@ class ConversationTests(unittest.TestCase):
         changed = db.fetch_one("SELECT * FROM messenger_users WHERE external_user_id = ?", (user_id,))
         self.assertEqual((changed["id"], changed["external_chat_id"]), (user["id"], "24053554"))
         self.assertEqual(db.fetch_one("SELECT COUNT(*) AS n FROM messenger_users")["n"], 1)
+        media = {"update_type": "message_created", "message": {
+            "sender": {"user_id": 63501621},
+            "recipient": {"chat_id": 24053555, "chat_type": "dialog"},
+            "body": {"mid": "media-only", "attachments": [{"type": "image"}]},
+        }}
+        self.process(media)
+        self.assertEqual(db.fetch_one("SELECT external_chat_id FROM messenger_users WHERE id = ?", (user["id"],))["external_chat_id"], "24053555")
         self.process({"update_type": "bot_stopped", "user": {"user_id": 63501621}, "chat_id": 24053554})
         self.process({"update_type": "dialog_removed", "user": {"user_id": 63501621}, "chat_id": 24053554})
-        self.assertEqual(db.fetch_one("SELECT external_chat_id FROM messenger_users WHERE id = ?", (user["id"],))["external_chat_id"], "24053554")
+        self.assertEqual(db.fetch_one("SELECT external_chat_id FROM messenger_users WHERE id = ?", (user["id"],))["external_chat_id"], "24053555")
 
     def test_untrusted_events_do_not_store_or_erase_chat_id(self) -> None:
         user_id = "63501621"
